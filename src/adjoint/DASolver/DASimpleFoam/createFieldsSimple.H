@@ -24,6 +24,21 @@ UPtr_.reset(
         mesh));
 volVectorField& U = UPtr_();
 
+/// user defined
+Info << "Reading field uData\n"
+     << endl;
+uDataPtr_.reset(
+    new volVectorField(
+        IOobject(
+            "uData",
+            runTime.timeName(),
+            target,
+            IOobject::MUST_READ,
+            IOobject::AUTO_WRITE),
+        target));
+volVectorField& uData = uDataPtr_();
+
+
 #include "createPhiPython.H"
 
 // create alpha porosity term

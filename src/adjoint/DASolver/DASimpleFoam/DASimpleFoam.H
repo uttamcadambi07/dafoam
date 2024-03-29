@@ -64,6 +64,10 @@ protected:
 
     /// velocity field pointer
     autoPtr<volVectorField> UPtr_;
+    
+    /// user defined
+    autoPtr<volVectorField> uDataPtr_;
+    
 
     /// surface flux field pointer
     autoPtr<surfaceScalarField> phiPtr_;
