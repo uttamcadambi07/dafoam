@@ -72,6 +72,9 @@ protected:
 
     /// fvMesh pointer
     autoPtr<fvMesh> meshPtr_;
+    
+    // User defined
+    autoPtr<fvMesh> targetPtr_;
 
     /// DAOption pointer
     autoPtr<DAOption> daOptionPtr_;
@@ -139,8 +142,19 @@ protected:
     /// the derivative value computed by the forward mode primal solution.
     HashTable<PetscScalar> forwardADDerivVal_;
 
+    /// the maximal residual for primal solution
+    scalar primalMinRes_ = 1e10;
+
     /// the solution time for the previous primal solution
     scalar prevPrimalSolTime_ = -1e10;
+
+    /// setup maximal residual control and print the residual as needed
+    template<class classType>
+    void primalResidualControl(
+        const SolverPerformance<classType>& solverP,
+        const label printToScreen,
+        const label printInterval,
+        const word varName);
 
     label isPrintTime(
         const Time& runTime,
@@ -205,23 +219,6 @@ protected:
     /// initial values for validateStates
     HashTable<scalar> initStateVals_;
 
-    /// whether to use mean states for steady-solvers
-    label useMeanStates_ = 0;
-    /// if the meanStates is used, what is the step-averaging start
-    scalar meanStateStart_ = 0.5;
-
-    /// step-averaged scalar states
-    PtrList<volScalarField> meanVolScalarStates_;
-
-    /// step-averaged model states
-    PtrList<volScalarField> meanModelStates_;
-
-    /// step-averaged vector states
-    PtrList<volVectorField> meanVolVectorStates_;
-
-    /// step-averaged surfaceScalar states
-    PtrList<surfaceScalarField> meanSurfaceScalarStates_;
-
 public:
     /// Runtime type information
     TypeName("DASolver");
@@ -271,18 +268,6 @@ public:
         const Vec wVec,
         Vec dFdW,
         Vec psi);
-
-    /// calculate the step-averaged mean states for steady solvers
-    void calcMeanStates();
-
-    /// initialize the meanStates if needed
-    void initMeanStates();
-
-    /// zero out the mean states before calculating the meanStates
-    void zeroMeanStates();
-
-    /// assign meanStates to states when the primal is done.
-    void assignMeanStatesToStates();
 
     /// assign primal variables based on the current time instance
     void setTimeInstanceField(const label instanceI);
@@ -1236,10 +1221,11 @@ public:
         DAUtility::pyCalcBetaJacVecProd = jacVecProd;
     }
 
+    /// set state variables to NO_WRITE
+    void disableStateAutoWrite();
+
     /// write state variables that are NO_WRITE to disk
-    void writeAdjStates(
-        const label writeMesh,
-        const wordList& additionalOutput);
+    void writeAdjStates(const label writeMesh);
 
     /// return the elapsed clock time for testing speed
     scalar getElapsedClockTime()
@@ -1302,6 +1288,28 @@ public:
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+template<class classType>
+void DASolver::primalResidualControl(
+    const SolverPerformance<classType>& solverP,
+    const label printToScreen,
+    const label printInterval,
+    const word varName)
+{
+    /*
+    Description:
+        Setup maximal residual control and print the residual as needed
+    */
+    if (mag(solverP.initialResidual()) < primalMinRes_)
+    {
+        primalMinRes_ = mag(solverP.initialResidual());
+    }
+    if (printToScreen)
+    {
+        Info << varName << " Initial residual: " << solverP.initialResidual() << endl
+             << varName << "   Final residual: " << solverP.finalResidual() << endl;
+    }
+}
 
 template<class classType>
 label DASolver::validateField(const classType& field)
