@@ -19,8 +19,6 @@ pyComputeInterface Foam::DAUtility::pyCalcBetaInterface = NULL;
 void* Foam::DAUtility::pyCalcBetaJacVecProd = NULL;
 pyJacVecProdInterface Foam::DAUtility::pyCalcBetaJacVecProdInterface = NULL;
 
-scalar Foam::DAUtility::primalMaxInitRes_ = -1e16;
-
 namespace Foam
 {
 
@@ -57,6 +55,15 @@ DASolver::DASolver(
 #include "setRootCasePython.H"
 #include "createTimePython.H"
 #include "createMeshPython.H"
+    // user defined
+    targetPtr_.reset(
+    new fvMesh(
+        IOobject(
+            "target",
+            runTimePtr_().timeName(),
+            runTimePtr_(),
+            IOobject::MUST_READ)));
+
     Info << "Initializing mesh and runtime for DASolver" << endl;
 
     daOptionPtr_.reset(new DAOption(meshPtr_(), pyOptions_));
@@ -136,10 +143,10 @@ label DASolver::loop(Time& runTime)
     }
 
     // check exit condition
-    if (DAUtility::primalMaxInitRes_ < primalMinResTol_ && runTime.timeIndex() > primalMinIters_)
+    if (primalMinRes_ < primalMinResTol_ && runTime.timeIndex() > primalMinIters_)
     {
         Info << "Time = " << t << endl;
-        Info << "Minimal residual " << DAUtility::primalMaxInitRes_ << " satisfied the prescribed tolerance " << primalMinResTol_ << endl
+        Info << "Minimal residual " << primalMinRes_ << " satisfied the prescribed tolerance " << primalMinResTol_ << endl
              << endl;
         this->printAllObjFuncs();
         runTime.writeNow();
@@ -8483,10 +8490,10 @@ label DASolver::checkResidualTol()
 
     scalar tol = daOptionPtr_->getOption<scalar>("primalMinResTol");
     scalar tolMax = daOptionPtr_->getOption<scalar>("primalMinResTolDiff");
-    if (DAUtility::primalMaxInitRes_ / tol > tolMax)
+    if (primalMinRes_ / tol > tolMax)
     {
         Info << "********************************************" << endl;
-        Info << "Primal min residual " << DAUtility::primalMaxInitRes_ << endl
+        Info << "Primal min residual " << primalMinRes_ << endl
              << "did not satisfy the prescribed tolerance "
              << tol << endl;
         Info << "Primal solution failed!" << endl;
@@ -9043,52 +9050,77 @@ void DASolver::calcPCMatWithFvMatrix(Mat PCMat)
 #endif
 }
 
-/*
-void DASolver::disableStateAutoWrite(const wordList& noWriteVars)
+void DASolver::disableStateAutoWrite()
 {
+    /*
+    Description:
+        set state variables to NO_WRITE to reduce the file IO load
+    */
 
-
-    forAll(noWriteVars, idxI)
+    // volVector states
+    forAll(stateInfo_["volVectorStates"], idxI)
     {
-        word varName = noWriteVars[idxI];
+        const word stateName = stateInfo_["volVectorStates"][idxI];
+        volVectorField& state =
+            const_cast<volVectorField&>(meshPtr_->thisDb().lookupObject<volVectorField>(stateName));
 
-        if (varName == "None")
-        {
-            continue;
-        }
+        state.writeOpt() = IOobject::NO_WRITE;
+    }
 
-        if (meshPtr_->thisDb().foundObject<volScalarField>(varName))
-        {
-            volScalarField& var =
-                const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(varName));
+    // volScalar states
+    forAll(stateInfo_["volScalarStates"], idxI)
+    {
+        const word stateName = stateInfo_["volScalarStates"][idxI];
+        volScalarField& state =
+            const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(stateName));
 
-            var.writeOpt() = IOobject::NO_WRITE;
-        }
-        else if (meshPtr_->thisDb().foundObject<volVectorField>(varName))
-        {
-            volVectorField& var =
-                const_cast<volVectorField&>(meshPtr_->thisDb().lookupObject<volVectorField>(varName));
+        state.writeOpt() = IOobject::NO_WRITE;
+    }
 
-            var.writeOpt() = IOobject::NO_WRITE;
-        }
-        else if (meshPtr_->thisDb().foundObject<surfaceScalarField>(varName))
-        {
-            surfaceScalarField& var =
-                const_cast<surfaceScalarField&>(meshPtr_->thisDb().lookupObject<surfaceScalarField>(varName));
+    // model states
+    forAll(stateInfo_["modelStates"], idxI)
+    {
+        const word stateName = stateInfo_["modelStates"][idxI];
+        volScalarField& state =
+            const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(stateName));
 
-            var.writeOpt() = IOobject::NO_WRITE;
-        }
-        else
-        {
-            Info << "Warning! The prescribed reduceIOVars " << varName << " not found in the db!" << endl;
-        }
+        state.writeOpt() = IOobject::NO_WRITE;
+    }
+
+    // surfaceScalar states
+    forAll(stateInfo_["surfaceScalarStates"], idxI)
+    {
+        const word stateName = stateInfo_["surfaceScalarStates"][idxI];
+        surfaceScalarField& state =
+            const_cast<surfaceScalarField&>(meshPtr_->thisDb().lookupObject<surfaceScalarField>(stateName));
+
+        state.writeOpt() = IOobject::NO_WRITE;
+    }
+
+    // some potential extra variables
+    if (meshPtr_->thisDb().foundObject<volScalarField>("nut"))
+    {
+        volScalarField& nut =
+            const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>("nut"));
+        nut.writeOpt() = IOobject::NO_WRITE;
+    }
+
+    if (meshPtr_->thisDb().foundObject<volScalarField>("betaFI"))
+    {
+        volScalarField& betaFI =
+            const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>("betaFI"));
+        betaFI.writeOpt() = IOobject::NO_WRITE;
+    }
+
+    if (meshPtr_->thisDb().foundObject<volVectorField>("fvSource"))
+    {
+        volVectorField& fvSource =
+            const_cast<volVectorField&>(meshPtr_->thisDb().lookupObject<volVectorField>("fvSource"));
+        fvSource.writeOpt() = IOobject::NO_WRITE;
     }
 }
-*/
 
-void DASolver::writeAdjStates(
-    const label writeMesh,
-    const wordList& additionalOutput)
+void DASolver::writeAdjStates(const label writeMesh)
 {
     /*
     Description:
@@ -9137,49 +9169,37 @@ void DASolver::writeAdjStates(
 
             state.write();
         }
+    }
 
-        // also write additional states
-        forAll(additionalOutput, idxI)
+    scalar endTime = runTimePtr_->endTime().value();
+    scalar deltaT = runTimePtr_->deltaT().value();
+    label nInstances = round(endTime / deltaT);
+
+    // write these extra suppressed variables for the last time step
+    if (runTimePtr_->timeIndex() == nInstances)
+    {
+        if (meshPtr_->thisDb().foundObject<volScalarField>("nut"))
         {
-            word varName = additionalOutput[idxI];
-
-            if (varName == "None")
-            {
-                continue;
-            }
-
-            if (meshPtr_->thisDb().foundObject<volScalarField>(varName))
-            {
-                volScalarField& var =
-                    const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(varName));
-
-                var.write();
-            }
-            else if (meshPtr_->thisDb().foundObject<volVectorField>(varName))
-            {
-                volVectorField& var =
-                    const_cast<volVectorField&>(meshPtr_->thisDb().lookupObject<volVectorField>(varName));
-
-                var.write();
-            }
-            else if (meshPtr_->thisDb().foundObject<surfaceScalarField>(varName))
-            {
-                surfaceScalarField& var =
-                    const_cast<surfaceScalarField&>(meshPtr_->thisDb().lookupObject<surfaceScalarField>(varName));
-
-                var.write();
-            }
-            else
-            {
-                Info << "Warning! The prescribed additionalOutput " << varName << " not found in the db! Ignoring it.." << endl;
-            }
+            const volScalarField& nut = meshPtr_->thisDb().lookupObject<volScalarField>("nut");
+            nut.write();
         }
 
-        if (writeMesh)
+        if (meshPtr_->thisDb().foundObject<volScalarField>("betaFI"))
         {
-            pointIOField points = meshPtr_->thisDb().lookupObject<pointIOField>("points");
-            points.write();
+            const volScalarField& betaFI = meshPtr_->thisDb().lookupObject<volScalarField>("betaFI");
+            betaFI.write();
         }
+
+        if (meshPtr_->thisDb().foundObject<volVectorField>("fvSource"))
+        {
+            const volVectorField& fvSource = meshPtr_->thisDb().lookupObject<volVectorField>("fvSource");
+            fvSource.write();
+        }
+    }
+
+    if (writeMesh)
+    {
+        meshPtr_->write();
     }
 }
 
@@ -9191,10 +9211,6 @@ void DASolver::readStateVars(
     Description:
         Read the state variables from the disk and assign the value to the prescribe time level.
         NOTE: we use == to assign both internal and boundary fields!
-        We always read oldTimes for volStates, no matter if the oldTimes are actually needed.
-        This is not the case for phi. We only read phi oldTime if needed.
-        This is to save memory because most of the time, we don't need phi.oldTime(); we do not
-        include the ddtCorr term.
     
     Inputs:
         
@@ -9222,45 +9238,50 @@ void DASolver::readStateVars(
         volVectorField& state =
             const_cast<volVectorField&>(meshPtr_->thisDb().lookupObject<volVectorField>(stateName));
 
-        volVectorField stateRead(
-            IOobject(
-                stateName,
-                timeName,
-                mesh,
-                IOobject::MUST_READ,
-                IOobject::NO_WRITE),
-            mesh);
+        label maxOldTimes = state.nOldTimes();
 
-        if (oldTimeLevel == 0)
+        if (maxOldTimes >= oldTimeLevel)
         {
-            state == stateRead;
-        }
-        else if (oldTimeLevel == 1)
-        {
-            state.oldTime() == stateRead;
-        }
-        else if (oldTimeLevel == 2)
-        {
-            if (timeVal < 0)
+            volVectorField stateRead(
+                IOobject(
+                    stateName,
+                    timeName,
+                    mesh,
+                    IOobject::MUST_READ,
+                    IOobject::NO_WRITE),
+                mesh);
+
+            if (oldTimeLevel == 0)
             {
-                volVectorField state0Read(
-                    IOobject(
-                        stateName + "_0",
-                        timeName,
-                        mesh,
-                        IOobject::READ_IF_PRESENT,
-                        IOobject::NO_WRITE),
-                    stateRead);
-                state.oldTime().oldTime() == state0Read;
+                state == stateRead;
+            }
+            else if (oldTimeLevel == 1)
+            {
+                state.oldTime() == stateRead;
+            }
+            else if (oldTimeLevel == 2)
+            {
+                if (timeVal < 0)
+                {
+                    volVectorField state0Read(
+                        IOobject(
+                            stateName + "_0",
+                            timeName,
+                            mesh,
+                            IOobject::READ_IF_PRESENT,
+                            IOobject::NO_WRITE),
+                        stateRead);
+                    state.oldTime().oldTime() == state0Read;
+                }
+                else
+                {
+                    state.oldTime().oldTime() == stateRead;
+                }
             }
             else
             {
-                state.oldTime().oldTime() == stateRead;
+                FatalErrorIn("") << "oldTimeLevel can only be 0, 1, and 2!" << abort(FatalError);
             }
-        }
-        else
-        {
-            FatalErrorIn("") << "oldTimeLevel can only be 0, 1, and 2!" << abort(FatalError);
         }
     }
 
@@ -9270,45 +9291,51 @@ void DASolver::readStateVars(
         volScalarField& state =
             const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(stateName));
 
-        volScalarField stateRead(
-            IOobject(
-                stateName,
-                timeName,
-                mesh,
-                IOobject::MUST_READ,
-                IOobject::NO_WRITE),
-            mesh);
+        label maxOldTimes = state.nOldTimes();
 
-        if (oldTimeLevel == 0)
+        if (maxOldTimes >= oldTimeLevel)
         {
-            state == stateRead;
-        }
-        else if (oldTimeLevel == 1)
-        {
-            state.oldTime() == stateRead;
-        }
-        else if (oldTimeLevel == 2)
-        {
-            if (timeVal < 0)
+
+            volScalarField stateRead(
+                IOobject(
+                    stateName,
+                    timeName,
+                    mesh,
+                    IOobject::MUST_READ,
+                    IOobject::NO_WRITE),
+                mesh);
+
+            if (oldTimeLevel == 0)
             {
-                volScalarField state0Read(
-                    IOobject(
-                        stateName + "_0",
-                        timeName,
-                        mesh,
-                        IOobject::READ_IF_PRESENT,
-                        IOobject::NO_WRITE),
-                    stateRead);
-                state.oldTime().oldTime() == state0Read;
+                state == stateRead;
+            }
+            else if (oldTimeLevel == 1)
+            {
+                state.oldTime() == stateRead;
+            }
+            else if (oldTimeLevel == 2)
+            {
+                if (timeVal < 0)
+                {
+                    volScalarField state0Read(
+                        IOobject(
+                            stateName + "_0",
+                            timeName,
+                            mesh,
+                            IOobject::READ_IF_PRESENT,
+                            IOobject::NO_WRITE),
+                        stateRead);
+                    state.oldTime().oldTime() == state0Read;
+                }
+                else
+                {
+                    state.oldTime().oldTime() == stateRead;
+                }
             }
             else
             {
-                state.oldTime().oldTime() == stateRead;
+                FatalErrorIn("") << "oldTimeLevel can only be 0, 1, and 2!" << abort(FatalError);
             }
-        }
-        else
-        {
-            FatalErrorIn("") << "oldTimeLevel can only be 0, 1, and 2!" << abort(FatalError);
         }
     }
 
@@ -9318,45 +9345,51 @@ void DASolver::readStateVars(
         volScalarField& state =
             const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(stateName));
 
-        volScalarField stateRead(
-            IOobject(
-                stateName,
-                timeName,
-                mesh,
-                IOobject::MUST_READ,
-                IOobject::NO_WRITE),
-            mesh);
+        label maxOldTimes = state.nOldTimes();
 
-        if (oldTimeLevel == 0)
+        if (maxOldTimes >= oldTimeLevel)
         {
-            state == stateRead;
-        }
-        else if (oldTimeLevel == 1)
-        {
-            state.oldTime() == stateRead;
-        }
-        else if (oldTimeLevel == 2)
-        {
-            if (timeVal < 0)
+
+            volScalarField stateRead(
+                IOobject(
+                    stateName,
+                    timeName,
+                    mesh,
+                    IOobject::MUST_READ,
+                    IOobject::NO_WRITE),
+                mesh);
+
+            if (oldTimeLevel == 0)
             {
-                volScalarField state0Read(
-                    IOobject(
-                        stateName + "_0",
-                        timeName,
-                        mesh,
-                        IOobject::READ_IF_PRESENT,
-                        IOobject::NO_WRITE),
-                    stateRead);
-                state.oldTime().oldTime() == state0Read;
+                state == stateRead;
+            }
+            else if (oldTimeLevel == 1)
+            {
+                state.oldTime() == stateRead;
+            }
+            else if (oldTimeLevel == 2)
+            {
+                if (timeVal < 0)
+                {
+                    volScalarField state0Read(
+                        IOobject(
+                            stateName + "_0",
+                            timeName,
+                            mesh,
+                            IOobject::READ_IF_PRESENT,
+                            IOobject::NO_WRITE),
+                        stateRead);
+                    state.oldTime().oldTime() == state0Read;
+                }
+                else
+                {
+                    state.oldTime().oldTime() == stateRead;
+                }
             }
             else
             {
-                state.oldTime().oldTime() == stateRead;
+                FatalErrorIn("") << "oldTimeLevel can only be 0, 1, and 2!" << abort(FatalError);
             }
-        }
-        else
-        {
-            FatalErrorIn("") << "oldTimeLevel can only be 0, 1, and 2!" << abort(FatalError);
         }
     }
 
@@ -9520,295 +9553,6 @@ void DASolver::writeFailedMesh()
     {
         runTimePtr_->setTime(10000.0, 10000);
         runTimePtr_->writeNow();
-    }
-}
-
-void DASolver::initMeanStates()
-{
-    /*
-    Description:
-        Initialize the mean states for DASolver::calcMeanStates
-    */
-
-    useMeanStates_ = daOptionPtr_->getSubDictOption<label>("useMeanStates", "active");
-
-    if (useMeanStates_)
-    {
-        meanStateStart_ = daOptionPtr_->getSubDictOption<scalar>("useMeanStates", "start");
-    }
-    else
-    {
-        return;
-    }
-
-    Info << "useMeanStates activated. Initializing the meanStates...." << endl;
-
-    // set the sizes
-    meanVolScalarStates_.setSize(stateInfo_["volScalarStates"].size());
-    meanVolVectorStates_.setSize(stateInfo_["volVectorStates"].size());
-    meanModelStates_.setSize(stateInfo_["modelStates"].size());
-    meanSurfaceScalarStates_.setSize(stateInfo_["surfaceScalarStates"].size());
-
-    forAll(stateInfo_["volVectorStates"], idxI)
-    {
-        const word stateName = stateInfo_["volVectorStates"][idxI];
-        const volVectorField& state = meshPtr_->thisDb().lookupObject<volVectorField>(stateName);
-
-        meanVolVectorStates_.set(
-            idxI,
-            new volVectorField(
-                IOobject(
-                    stateName,
-                    runTimePtr_->timeName(),
-                    meshPtr_(),
-                    IOobject::READ_IF_PRESENT,
-                    IOobject::NO_WRITE),
-                state));
-
-        meanVolVectorStates_[idxI].rename(stateName + "Mean");
-    }
-
-    forAll(stateInfo_["volScalarStates"], idxI)
-    {
-        const word stateName = stateInfo_["volScalarStates"][idxI];
-        const volScalarField& state = meshPtr_->thisDb().lookupObject<volScalarField>(stateName);
-
-        meanVolScalarStates_.set(
-            idxI,
-            new volScalarField(
-                IOobject(
-                    stateName,
-                    runTimePtr_->timeName(),
-                    meshPtr_(),
-                    IOobject::READ_IF_PRESENT,
-                    IOobject::NO_WRITE),
-                state));
-
-        meanVolScalarStates_[idxI].rename(stateName + "Mean");
-    }
-
-    forAll(stateInfo_["modelStates"], idxI)
-    {
-        const word stateName = stateInfo_["modelStates"][idxI];
-        const volScalarField& state = meshPtr_->thisDb().lookupObject<volScalarField>(stateName);
-
-        meanModelStates_.set(
-            idxI,
-            new volScalarField(
-                IOobject(
-                    stateName,
-                    runTimePtr_->timeName(),
-                    meshPtr_(),
-                    IOobject::READ_IF_PRESENT,
-                    IOobject::NO_WRITE),
-                state));
-
-        meanModelStates_[idxI].rename(stateName + "Mean");
-    }
-
-    forAll(stateInfo_["surfaceScalarStates"], idxI)
-    {
-        const word stateName = stateInfo_["surfaceScalarStates"][idxI];
-        const surfaceScalarField& state = meshPtr_->thisDb().lookupObject<surfaceScalarField>(stateName);
-
-        meanSurfaceScalarStates_.set(
-            idxI,
-            new surfaceScalarField(
-                IOobject(
-                    stateName,
-                    runTimePtr_->timeName(),
-                    meshPtr_(),
-                    IOobject::READ_IF_PRESENT,
-                    IOobject::NO_WRITE),
-                state));
-
-        meanSurfaceScalarStates_[idxI].rename(stateName + "Mean");
-    }
-}
-
-void DASolver::zeroMeanStates()
-{
-    /*
-    Description:
-        Set all the mean states to zeros
-    */
-
-    if (!useMeanStates_)
-    {
-        return;
-    }
-
-    Info << "Zeroing the meanStates...." << endl;
-
-    forAll(meanVolVectorStates_, idxI)
-    {
-        forAll(meanVolVectorStates_[idxI], cellI)
-        {
-            meanVolVectorStates_[idxI][cellI] = vector::zero;
-        }
-    }
-
-    forAll(meanVolScalarStates_, idxI)
-    {
-        forAll(meanVolScalarStates_[idxI], cellI)
-        {
-            meanVolScalarStates_[idxI][cellI] = 0.0;
-        }
-    }
-
-    forAll(meanModelStates_, idxI)
-    {
-        forAll(meanModelStates_[idxI], cellI)
-        {
-            meanModelStates_[idxI][cellI] = 0.0;
-        }
-    }
-
-    forAll(meanSurfaceScalarStates_, idxI)
-    {
-        forAll(meanSurfaceScalarStates_[idxI], faceI)
-        {
-            meanSurfaceScalarStates_[idxI][faceI] = 0.0;
-        }
-
-        forAll(meanSurfaceScalarStates_[idxI].boundaryField(), patchI)
-        {
-            forAll(meanSurfaceScalarStates_[idxI].boundaryField()[patchI], faceI)
-            {
-                meanSurfaceScalarStates_[idxI].boundaryFieldRef()[patchI][faceI] = 0.0;
-            }
-        }
-    }
-}
-
-void DASolver::assignMeanStatesToStates()
-{
-    /*
-    Description:
-        Assigned the calculated meanStates to the primal states and update intermediate vars 
-    */
-
-    if (!useMeanStates_)
-    {
-        return;
-    }
-
-    Info << "Assigning the meanStates to states...." << endl;
-
-    forAll(stateInfo_["volVectorStates"], idxI)
-    {
-        const word stateName = stateInfo_["volVectorStates"][idxI];
-        volVectorField& state = const_cast<volVectorField&>(meshPtr_->thisDb().lookupObject<volVectorField>(stateName));
-
-        state = meanVolVectorStates_[idxI];
-    }
-
-    forAll(stateInfo_["volScalarStates"], idxI)
-    {
-        const word stateName = stateInfo_["volScalarStates"][idxI];
-        volScalarField& state = const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(stateName));
-
-        state = meanVolScalarStates_[idxI];
-    }
-
-    forAll(stateInfo_["modelStates"], idxI)
-    {
-        const word stateName = stateInfo_["modelStates"][idxI];
-        volScalarField& state = const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(stateName));
-
-        state = meanModelStates_[idxI];
-    }
-
-    forAll(stateInfo_["surfaceScalarStates"], idxI)
-    {
-        const word stateName = stateInfo_["surfaceScalarStates"][idxI];
-        surfaceScalarField& state = const_cast<surfaceScalarField&>(meshPtr_->thisDb().lookupObject<surfaceScalarField>(stateName));
-
-        state == meanSurfaceScalarStates_[idxI];
-    }
-
-    // update state BC and intermedate vars
-    this->updateStateBoundaryConditions();
-}
-
-void DASolver::calcMeanStates()
-{
-    /*
-    Description:
-        Calculate the mean states
-        This is useful for cases when steady-state solvers do not converge very well, e.g., flow
-        separation. In these cases, the flow field and the objective function will oscillate and
-        to get a better flow field and obj func value, we can use step-averaged (mean) states
-    */
-
-    if (!useMeanStates_)
-    {
-        return;
-    }
-
-    // Info << "Calculating the meanStates...." << endl;
-
-    // calculate the average on the fly, i.e., moving average
-    scalar endTime = runTimePtr_->endTime().value();
-    scalar deltaT = runTimePtr_->deltaT().value();
-    label nSteps = round(endTime / deltaT);
-    label startTimeIndex = round(nSteps * meanStateStart_);
-    label timeIndex = runTimePtr_->timeIndex();
-    if (timeIndex >= startTimeIndex)
-    {
-        label n = timeIndex - startTimeIndex + 1;
-        forAll(stateInfo_["volVectorStates"], idxI)
-        {
-            const word stateName = stateInfo_["volVectorStates"][idxI];
-            const volVectorField& state = meshPtr_->thisDb().lookupObject<volVectorField>(stateName);
-            forAll(meanVolVectorStates_[idxI], cellI)
-            {
-                meanVolVectorStates_[idxI][cellI] = (meanVolVectorStates_[idxI][cellI] * (n - 1) + state[cellI]) / n;
-            }
-        }
-
-        forAll(stateInfo_["volScalarStates"], idxI)
-        {
-            const word stateName = stateInfo_["volScalarStates"][idxI];
-            const volScalarField& state = meshPtr_->thisDb().lookupObject<volScalarField>(stateName);
-
-            forAll(meanVolScalarStates_[idxI], cellI)
-            {
-                meanVolScalarStates_[idxI][cellI] = (meanVolScalarStates_[idxI][cellI] * (n - 1) + state[cellI]) / n;
-            }
-        }
-
-        forAll(stateInfo_["modelStates"], idxI)
-        {
-            const word stateName = stateInfo_["modelStates"][idxI];
-            const volScalarField& state = meshPtr_->thisDb().lookupObject<volScalarField>(stateName);
-
-            forAll(meanModelStates_[idxI], cellI)
-            {
-                meanModelStates_[idxI][cellI] = (meanModelStates_[idxI][cellI] * (n - 1) + state[cellI]) / n;
-            }
-        }
-
-        forAll(stateInfo_["surfaceScalarStates"], idxI)
-        {
-            const word stateName = stateInfo_["surfaceScalarStates"][idxI];
-            const surfaceScalarField& state = meshPtr_->thisDb().lookupObject<surfaceScalarField>(stateName);
-
-            forAll(meanSurfaceScalarStates_[idxI], faceI)
-            {
-                meanSurfaceScalarStates_[idxI][faceI] = (meanSurfaceScalarStates_[idxI][faceI] * (n - 1) + state[faceI]) / n;
-            }
-
-            forAll(meanSurfaceScalarStates_[idxI].boundaryField(), patchI)
-            {
-                forAll(meanSurfaceScalarStates_[idxI].boundaryField()[patchI], faceI)
-                {
-                    scalar val = meanSurfaceScalarStates_[idxI].boundaryField()[patchI][faceI];
-                    scalar val1 = state.boundaryField()[patchI][faceI];
-                    meanSurfaceScalarStates_[idxI].boundaryFieldRef()[patchI][faceI] = (val * (n - 1) + val1) / n;
-                }
-            }
-        }
     }
 }
 
