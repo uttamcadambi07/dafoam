@@ -33,10 +33,11 @@ i.e. a simplified nut wall function usable with any turbulence model (only avail
 
 \*---------------------------------------------------------------------------*/
 #include "nutWallFunctionFvPatchScalarFieldDF.H"
-#include "turbulenceModel.H"
+#include "DATurbulenceModel.H"
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
 #include "addToRunTimeSelectionTable.H"
+#include "fvMesh.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -44,6 +45,8 @@ namespace Foam
 {
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+
 
 tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::calcNut() const
 {
@@ -62,7 +65,21 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::calcNut() const
     const fvPatchVectorField& Uw = turbModel.U().boundaryField()[patchi];
     const scalarField magGradU(mag(Uw.snGrad()));
     const scalarField& y = turbModel.y()[patchi];
+    const fvMesh& mesh = turbModel.U().mesh();
 
+    const DATurbulenceModel& constDaTurb = mesh.thisDb().lookupObject<DATurbulenceModel>("DATurbulenceModel");
+    DATurbulenceModel& daTurb = const_cast<DATurbulenceModel&>(constDaTurb);
+
+//    DATurbulenceModel& daTurb = const_cast<DATurbulenceModel&>(daModelPtr_->getDATurbulenceModel());
+
+//    Info<< "Reading field eta\n" << endl; volScalarField eta ( IOobject ( "eta", mesh.time().timeName(), mesh,
+//    IOobject::MUST_READ, IOobject::AUTO_WRITE ), mesh );
+
+//    volScalarField teta= db().lookupObject<volScalarField>("eta");
+//    volScalarField teta = daTurb.eta();
+//    fvPatchScalarField eta_ = teta.boundaryField()[patchi];
+
+    fvPatchScalarField etaPatch_ = etaWallDV_.boundaryField()[patchi];
     const tmp<scalarField> tnuw = turbModel.nu(patchi);
     const scalarField& nuw = tnuw();
 
@@ -81,7 +98,7 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::calcNut() const
         }
         else
         {
-            nutw[facei] = nuw[facei] * (yPlus[facei] * kappa_ / log(E_ * yPlus[facei] - 1.0));
+            nutw[facei] = nuw[facei] * ((yPlus[facei] * kappa_ / max(log(E_ * yPlus[facei]/etaPatch_[facei]),1)) - 1.0);
         }
     }
 
@@ -126,50 +143,104 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::CalcYPlus
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
 (
     const fvPatch& p,
+    const fvMesh& mesh,
     const DimensionedField<scalar, volMesh>& iF
 )
 :
-    nutWallFunctionFvPatchScalarField(p, iF)
+    nutWallFunctionFvPatchScalarField(p, iF),
+    etaWallDV_(
+          IOobject(
+              "etaWallDV",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0))
 {}
 
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
 (
     const nutWallFunctionFvPatchScalarFieldDF& ptf,
     const fvPatch& p,
+    const fvMesh & mesh,
     const DimensionedField<scalar, volMesh>& iF,
     const fvPatchFieldMapper& mapper
 )
 :
-    nutWallFunctionFvPatchScalarField(ptf, p, iF, mapper)
+    nutWallFunctionFvPatchScalarField(ptf, p, iF, mapper),
+    etaWallDV_(
+          IOobject(
+              "etaWallDV",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0))
+
 {}
 
 
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
 (
     const fvPatch& p,
+    const fvMesh& mesh,
     const DimensionedField<scalar, volMesh>& iF,
     const dictionary& dict
 )
 :
-    nutWallFunctionFvPatchScalarField(p, iF, dict)
+    nutWallFunctionFvPatchScalarField(p, iF, dict),
+    etaWallDV_(
+          IOobject(
+              "etaWallDV",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0))
+
 {}
 
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
 (
-    const nutWallFunctionFvPatchScalarFieldDF& wfpsf
+    const nutWallFunctionFvPatchScalarFieldDF& wfpsf,
+    const fvMesh& mesh
 )
 :
-    nutWallFunctionFvPatchScalarField(wfpsf)
+    nutWallFunctionFvPatchScalarField(wfpsf),
+    etaWallDV_(
+          IOobject(
+              "etaWallDV",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0))
+
 {}
 
 
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
 (
     const nutWallFunctionFvPatchScalarFieldDF& wfpsf,
+    const fvMesh& mesh,
     const DimensionedField<scalar, volMesh>& iF
 )
 :
-    nutWallFunctionFvPatchScalarField(wfpsf, iF)
+    nutWallFunctionFvPatchScalarField(wfpsf, iF),
+    etaWallDV_(
+          IOobject(
+              "etaWallDV",
+              mesh.time().timeName(),
+              mesh,
+              IOobject::READ_IF_PRESENT,
+              IOobject::AUTO_WRITE),
+          mesh,
+          dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0))
+
 {}
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

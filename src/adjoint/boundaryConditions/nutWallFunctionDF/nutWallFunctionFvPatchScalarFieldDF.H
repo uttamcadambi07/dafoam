@@ -78,7 +78,8 @@
 #define nutWallFunctionFvPatchScalarFieldDF_H
 
 #include "nutWallFunctionFvPatchScalarField.H"
-
+#include "DAModel.H"
+#include "DAOption.H"
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
@@ -100,7 +101,12 @@ protected:
     //- Calculate the turbulence viscosity
     virtual tmp<scalarField> calcNut() const;
 
-
+//    /// Foam::fvMesh object
+//    const fvMesh& mesh_;
+//
+//    /// DAOptoin object
+//    const DAOption& daOption_;
+volScalarField etaWallDV_;
 public:
     //- Runtime type information
     TypeName("nutWallFunctionDF");
@@ -111,6 +117,7 @@ public:
         nutWallFunctionFvPatchScalarFieldDF
         (
             const fvPatch&,
+	    const fvMesh&,
             const DimensionedField<scalar, volMesh>&
         );
 
@@ -118,6 +125,7 @@ public:
         nutWallFunctionFvPatchScalarFieldDF
         (
             const fvPatch&,
+            const fvMesh&,
             const DimensionedField<scalar, volMesh>&,
             const dictionary&
         );
@@ -129,15 +137,16 @@ public:
         (
             const nutWallFunctionFvPatchScalarFieldDF&,
             const fvPatch&,
+            const fvMesh&,
             const DimensionedField<scalar, volMesh>&,
             const fvPatchFieldMapper&
         );
-        
 
         //- Construct as copy
         nutWallFunctionFvPatchScalarFieldDF
         (
-            const nutWallFunctionFvPatchScalarFieldDF&
+            const nutWallFunctionFvPatchScalarFieldDF&,
+            const fvMesh&
         );
 
         //- Construct and return a clone
@@ -153,18 +162,20 @@ public:
         nutWallFunctionFvPatchScalarFieldDF
         (
             const nutWallFunctionFvPatchScalarFieldDF&,
+            const fvMesh&,
             const DimensionedField<scalar, volMesh>&
         );
 
         //- Construct and return a clone setting internal field reference
         virtual tmp<fvPatchScalarField> clone
         (
+	    const fvMesh& mesh,
             const DimensionedField<scalar, volMesh>& iF
         ) const
         {
             return tmp<fvPatchScalarField>
             (
-                new nutWallFunctionFvPatchScalarFieldDF(*this, iF)
+                new nutWallFunctionFvPatchScalarFieldDF(*this, mesh, iF)
             );
         }
 
@@ -174,7 +185,6 @@ public:
 
 	//- Calculate and return the yPlus at the boundary
             virtual tmp<scalarField> yPlus() const;
-
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
