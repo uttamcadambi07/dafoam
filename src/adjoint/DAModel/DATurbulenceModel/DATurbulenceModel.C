@@ -39,6 +39,8 @@ DATurbulenceModel::DATurbulenceModel(
           mesh.thisDb().lookupObject<volScalarField>("nut"))),
       U_(const_cast<volVectorField&>(
           mesh.thisDb().lookupObject<volVectorField>("U"))),
+      eta_(const_cast<volScalarField&>(
+          mesh.thisDb().lookupObject<volScalarField>("eta"))),
       phi_(const_cast<surfaceScalarField&>(
           mesh.thisDb().lookupObject<surfaceScalarField>("phi"))),
       phase_(

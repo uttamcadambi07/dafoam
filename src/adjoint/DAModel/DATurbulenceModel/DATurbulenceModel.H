@@ -84,6 +84,9 @@ protected:
 
     /// velocity
     volVectorField& U_;
+    
+    /// design variable eta
+    volScalarField& eta_;
 
     /// face flux
     surfaceScalarField& phi_;
