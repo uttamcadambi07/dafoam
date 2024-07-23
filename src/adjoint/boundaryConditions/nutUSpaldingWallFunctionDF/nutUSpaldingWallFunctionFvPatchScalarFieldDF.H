@@ -137,6 +137,7 @@ protected:
 
     //- Write local wall function variables
     virtual void writeLocalEntries(Ostream&) const;
+    
 
 public:
     //- Runtime type information
