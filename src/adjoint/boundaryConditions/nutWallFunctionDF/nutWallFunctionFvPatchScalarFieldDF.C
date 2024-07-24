@@ -255,7 +255,7 @@ tmp<volScalarField> nutWallFunctionFvPatchScalarFieldDF::initializeEtaDV(const f
               "etaWallDV",
               mesh.time().timeName(),
               mesh,
-              IOobject::READ_IF_PRESENT,
+              IOobject::MUST_READ_IF_MODIFIED,
               IOobject::AUTO_WRITE),
           mesh,
           dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0)));
