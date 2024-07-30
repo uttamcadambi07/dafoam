@@ -42,7 +42,7 @@ i.e. a simplified nut wall function usable with any turbulence model (only avail
 
 namespace Foam
 {
-
+addToRunTimeSelectionTable(nutWallFunctionFvPatchScalarField, nutWallFunctionFvPatchScalarFieldDF, dictionary);
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 
@@ -51,7 +51,7 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::calcNut() const
 {
     const label patchi = patch().index();
 
-    const turbulenceModel& turbModel = db().lookupObject<turbulenceModel>
+    const turbulenceModel& turbModel = fvPatchField<scalar>::db().lookupObject<turbulenceModel>
     (
         IOobject::groupName
 	(
@@ -64,29 +64,14 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::calcNut() const
     const fvPatchVectorField& Uw = turbModel.U().boundaryField()[patchi];
     const scalarField magGradU(mag(Uw.snGrad()));
     const scalarField& y = turbModel.y()[patchi];
-    const fvMesh& mesh = turbModel.U().mesh();
 
-    //const DATurbulenceModel& constDaTurb = mesh.thisDb().lookupObject<DATurbulenceModel>("DATurbulenceModel");
-    //DATurbulenceModel& daTurb = const_cast<DATurbulenceModel&>(constDaTurb);
-
-//    DATurbulenceModel& daTurb = const_cast<DATurbulenceModel&>(daModelPtr_->getDATurbulenceModel());
-
-//    Info<< "Reading field eta\n" << endl; volScalarField eta ( IOobject ( "eta", mesh.time().timeName(), mesh,
-//    IOobject::MUST_READ, IOobject::AUTO_WRITE ), mesh );
-
-//    volScalarField teta= db().lookupObject<volScalarField>("eta");
-//    volScalarField teta = daTurb.eta();
-//    fvPatchScalarField eta_ = teta.boundaryField()[patchi];
-    //largeClass& returnMe = tReturnMe();
-    tmp<volScalarField> tetaWallDV_ = initializeEtaDV(mesh);
-    const volScalarField& etaDV_ = tetaWallDV_();
-    fvPatchScalarField etaPatch_ = etaDV_.boundaryField()[patchi];
+    fvPatchScalarField etaPatch_ = etaWallDV_.boundaryField()[patchi];
     const tmp<scalarField> tnuw = turbModel.nu(patchi);
     const scalarField& nuw = tnuw();
 
     tmp<scalarField> tyPlus = CalcYPlus(magGradU);
     const scalarField& yPlus = tyPlus();
-  
+
     tmp<scalarField> tnutw(new scalarField(patch().size(), 0.0));
     scalarField& nutw = tnutw.ref();
 
@@ -102,7 +87,6 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::calcNut() const
             nutw[facei] = nuw[facei] * ((yPlus[facei] * kappa_ / max(log(E_ * yPlus[facei]/etaPatch_[facei]),1)) - 1.0);
         }
     }
-
     return tnutw;
 }
 
@@ -113,7 +97,7 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::CalcYPlus
 {
     const label patchi = patch().index();
 
-    const turbulenceModel& turbModel = db().lookupObject<turbulenceModel>
+    const turbulenceModel& turbModel = fvPatchField<scalar>::db().lookupObject<turbulenceModel>
     (
         IOobject::groupName
 	(
@@ -125,8 +109,9 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::CalcYPlus
     const scalarField& y = turbModel.y()[patchi];
     const tmp<scalarField> tnuw = turbModel.nu(patchi);
     const scalarField& nuw = tnuw();
+    scalar kappa=0.4;
 
-    const scalarField uTau = sqrt(nuw * magGradU);
+    const scalarField uTau = kappa * y * magGradU;
 
     tmp<scalarField> tyPlus(new scalarField(patch().size()));
     scalarField& yPlus = tyPlus.ref();
@@ -140,14 +125,73 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::CalcYPlus
 }
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
-
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
 (
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF
 )
 :
-    nutWallFunctionFvPatchScalarField(p, iF)
+    nutWallFunctionFvPatchScalarField(p, iF),
+    IOdictionary
+    (
+        IOobject
+        (
+            IOobject::groupName("turbulenceProperties", iF.group()),
+            iF.time().constant(),
+            iF.db(),
+            IOobject::MUST_READ_IF_MODIFIED,
+            IOobject::NO_WRITE
+        )
+    ),
+    runTime_(iF.time()),
+    mesh_(iF.mesh()),
+    etaWallDV_(
+        IOobject(
+            "etaWallDV",
+            mesh_.time().timeName(),
+            mesh_,
+            IOobject::READ_IF_PRESENT,
+            IOobject::AUTO_WRITE),
+        mesh_,
+        dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+        "zeroGradient")
+{}
+
+nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
+(
+    const fvPatch& p,
+    const DimensionedField<scalar, volMesh>& iF,
+    const dictionary& dict
+)
+:
+    nutWallFunctionFvPatchScalarField(p, iF, dict),
+    IOdictionary
+    (
+        IOobject
+        (
+            IOobject::groupName("turbulenceProperties", iF.group()),
+            iF.time().constant(),
+            iF.db(),
+            IOobject::MUST_READ_IF_MODIFIED,
+            IOobject::NO_WRITE
+        )
+    ),
+    runTime_(iF.time()),
+    mesh_(iF.mesh()),
+    etaWallDV_
+    (
+        IOobject
+        (
+            "etaWallDV",
+            mesh_.time().timeName(),
+            mesh_,
+            IOobject::READ_IF_PRESENT,
+            IOobject::AUTO_WRITE
+        ),
+        mesh_,
+        dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+        "zeroGradient"
+    )
 {}
 
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
@@ -158,45 +202,60 @@ nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
     const fvPatchFieldMapper& mapper
 )
 :
-    nutWallFunctionFvPatchScalarField(ptf, p, iF, mapper)
-
+    nutWallFunctionFvPatchScalarField(ptf, p, iF, mapper),
+    IOdictionary(ptf),
+    runTime_(ptf.runTime_),
+    mesh_(ptf.mesh_),
+    etaWallDV_(ptf.etaWallDV_)
 {}
-
 
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
 (
     const fvPatch& p,
     const DimensionedField<scalar, volMesh>& iF,
-    const dictionary& dict
+    const volVectorField& U,
+    const surfaceScalarField& alphaRhoPhi,
+    const surfaceScalarField& phi,
+    const word& propertiesName
 )
 :
-    nutWallFunctionFvPatchScalarField(p, iF, dict)
-
-{ 
-    const turbulenceModel& turbModel = db().lookupObject<turbulenceModel>
+    nutWallFunctionFvPatchScalarField(p,iF),
+    IOdictionary
     (
-        IOobject::groupName
-	(
-            turbulenceModel::propertiesName,
-            internalField().group()
-	)
-    );
-    const fvMesh& mesh = turbModel.U().mesh();
-/*
-    this->initializeEtaDV(mesh);//volScalarField& etaDV = etaDV_();
-    */
-}
-
-
+        IOobject
+        (
+            IOobject::groupName(propertiesName, alphaRhoPhi.group()),
+            U.time().constant(),
+            U.db(),
+            IOobject::MUST_READ_IF_MODIFIED,
+            IOobject::NO_WRITE
+        )
+    ),
+    runTime_(U.time()),
+    mesh_(U.mesh()),
+    etaWallDV_(
+        IOobject(
+            "etaWallDV",
+            mesh_.time().timeName(),
+            mesh_,
+            IOobject::READ_IF_PRESENT,
+            IOobject::AUTO_WRITE),
+        mesh_,
+        dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
+        "zeroGradient")
+{}
 
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
 (
     const nutWallFunctionFvPatchScalarFieldDF& wfpsf
 )
 :
-    nutWallFunctionFvPatchScalarField(wfpsf)
+    nutWallFunctionFvPatchScalarField(wfpsf),
+    IOdictionary(wfpsf),
+    runTime_(wfpsf.runTime_),
+    mesh_(wfpsf.mesh_),
+    etaWallDV_(wfpsf.etaWallDV_)
 {}
-
 
 nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
 (
@@ -204,16 +263,18 @@ nutWallFunctionFvPatchScalarFieldDF::nutWallFunctionFvPatchScalarFieldDF
     const DimensionedField<scalar, volMesh>& iF
 )
 :
-    nutWallFunctionFvPatchScalarField(wfpsf, iF)
-
+    nutWallFunctionFvPatchScalarField(wfpsf, iF),
+    IOdictionary(wfpsf),
+    runTime_(wfpsf.runTime_),
+    mesh_(wfpsf.mesh_),
+    etaWallDV_(wfpsf.etaWallDV_)
 {}
-
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::yPlus() const
 {
     const label patchi = patch().index();
-    const turbulenceModel& turbModel = db().lookupObject<turbulenceModel>
+    const turbulenceModel& turbModel = fvPatchField<scalar>::db().lookupObject<turbulenceModel>
     (
         IOobject::groupName
         (
@@ -224,43 +285,10 @@ tmp<scalarField> nutWallFunctionFvPatchScalarFieldDF::yPlus() const
 
     const fvPatchVectorField& Uw = turbModel.U().boundaryField()[patchi];
     const scalarField magGradU(mag(Uw.snGrad()));
-    const scalarField& y = turbModel.y()[patchi];
+//    const scalarField& y = turbModel.y()[patchi];
 
 
     return CalcYPlus(magGradU);
-}
-/*
-tmp<fvMesh> nutWallFunctionFvPatchScalarFieldDF::getFvMesh() const
-{
-    const turbulenceModel& turbModel = db().lookupObject<turbulenceModel>
-    (
-        IOobject::groupName
-	(
-            turbulenceModel::propertiesName,
-            internalField().group()
-	)
-    );
-    const fvMesh& mesh = turbModel.U().mesh();
-    return mesh;
-    
-}
-*/
-
-tmp<volScalarField> nutWallFunctionFvPatchScalarFieldDF::initializeEtaDV(const fvMesh& mesh) const
-{
-    // use .ref() when returning with the new keyword
-    // add code to get the mesh. "New"
-    tmp<volScalarField> tetaWallDV_(new volScalarField(
-          IOobject(
-              "etaWallDV",
-              mesh.time().timeName(),
-              mesh,
-              IOobject::MUST_READ_IF_MODIFIED,
-              IOobject::AUTO_WRITE),
-          mesh,
-          dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0)));
-    //volScalarField& etaWallDV_ = tetaWallDV_();
-    return tetaWallDV_;
 }
 
 

@@ -81,6 +81,10 @@
 #include "DAModel.H"
 #include "DAOption.H"
 #include "fvMesh.H"
+#include "IOdictionary.H"
+#include "primitiveFieldsFwd.H"
+#include "surfaceFieldsFwd.H"
+#include "geometricOneField.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -92,22 +96,20 @@ namespace Foam
 \*---------------------------------------------------------------------------*/
 
 class nutWallFunctionFvPatchScalarFieldDF
-    : public nutWallFunctionFvPatchScalarField
+    : public nutWallFunctionFvPatchScalarField,
+      public IOdictionary
 {
 protected:
 // Protected Member Functions
+        const Time& runTime_;
+        const fvMesh& mesh_;
+	volScalarField etaWallDV_;
 
     //- Calculate and return the yPlus values
     virtual tmp<scalarField> CalcYPlus(const scalarField& magGradU) const;
 
     //- Calculate the turbulence viscosity
     virtual tmp<scalarField> calcNut() const;
-
-//    /// Foam::fvMesh object
-//    const fvMesh& mesh_;
-//
-//    /// DAOptoin object
-//    const DAOption& daOption_;
 
 public:
     //- Runtime type information
@@ -122,6 +124,16 @@ public:
             const DimensionedField<scalar, volMesh>&
         );
 
+	//-Construct eta field from IOdictionary
+	nutWallFunctionFvPatchScalarFieldDF
+	(
+            const fvPatch&,
+            const DimensionedField<scalar, volMesh>&,
+            const volVectorField&,
+            const surfaceScalarField&,
+            const surfaceScalarField&,
+            const word&
+	);
         //- Construct from patch, internal field and dictionary
         nutWallFunctionFvPatchScalarFieldDF
         (
@@ -174,8 +186,6 @@ public:
                 new nutWallFunctionFvPatchScalarFieldDF(*this, iF)
             );
         }
-        
-        
 
 // Member functions
 
@@ -183,10 +193,7 @@ public:
 
 	//- Calculate and return the yPlus at the boundary
             virtual tmp<scalarField> yPlus() const;
-            
-            tmp<volScalarField> initializeEtaDV(const fvMesh& mesh) const;
-            
-            //tmp<fvMesh> getFvMesh();
+
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
