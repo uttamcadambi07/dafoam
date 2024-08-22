@@ -2102,6 +2102,8 @@ class PYDAFOAM(object):
 
         if fieldType == "scalar":
             fieldComp = 1
+        elif fieldType == "scalarPatch":
+            fieldComp = 1
         elif fieldType == "vector":
             fieldComp = 3
         else:

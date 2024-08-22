@@ -1323,7 +1323,7 @@ void DASolver::getOFField(
     PetscScalar* vecArray;
     VecGetArray(field, &vecArray);
 
-    if (fieldType == "scalar")
+    if (fieldType == "scalar"||fieldType == "scalarPatch")
     {
         const volScalarField& field = meshPtr_->thisDb().lookupObject<volScalarField>(fieldName);
         forAll(field, cellI)
@@ -8066,6 +8066,23 @@ void DASolver::registerFieldVariableInput4AD(
             this->globalADTape_.registerInput(state[cellI]);
         }
     }
+    // to be checked
+    else if (fieldType == "scalarPatch")
+    {
+    volScalarField& state = const_cast<volScalarField&>(
+            meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
+        forAll(state.boundaryField(), patchI)
+        {
+        // added 20/08/2024
+        if (state.boundaryFieldRef()[patchI].type() == "nutWallFunctionDF")
+            {
+            forAll(state.boundaryField()[patchI], faceI)
+                {
+                this->globalADTape_.registerInput(state.boundaryFieldRef()[patchI][faceI]);
+                }
+            }
+        }
+    }
     else if (fieldType == "vector")
     {
         volVectorField& state = const_cast<volVectorField&>(
@@ -8111,6 +8128,24 @@ void DASolver::deactivateFieldVariableInput4AD(
         forAll(state, cellI)
         {
             this->globalADTape_.deactivateValue(state[cellI]);
+        }
+    }
+    //to be checked
+    else if (fieldType == "scalarPatch")
+    {
+        volScalarField& state = const_cast<volScalarField&>(
+            meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
+
+        forAll(state.boundaryField(), patchI)
+        {
+            // added 20/08/2024
+            if (state.boundaryFieldRef()[patchI].type() == "nutWallFunctionDF")
+            {
+                forAll(state.boundaryField()[patchI], faceI)
+                {
+                    this-> globalADTape_.deactivateValue(state.boundaryFieldRef()[patchI][faceI]);
+                }
+            }
         }
     }
     else if (fieldType == "vector")
@@ -8828,6 +8863,24 @@ void DASolver::assignFieldGradient2Vec(
             vecArray[cellI] = state[cellI].getGradient();
         }
     }
+    //to be checked
+    else if (fieldType == "scalarPatch")
+    {
+        volScalarField& state = const_cast<volScalarField&>(
+            meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
+
+        forAll(state.boundaryField(), patchI)
+        {
+            // added 20/08/2024
+            if (state.boundaryFieldRef()[patchI].type() == "nutWallFunctionDF")
+            {
+                forAll(state.boundaryField()[patchI], faceI)
+                    {
+                    vecArray[faceI] = state.boundaryFieldRef()[patchI][faceI].getGradient();
+                        }
+            }
+        }
+    }
     else if (fieldType == "vector")
     {
         volVectorField& state = const_cast<volVectorField&>(
@@ -9199,7 +9252,7 @@ void DASolver::updateBoundaryConditions(
         fieldType: either scalar or vector
     */
 
-    if (fieldType == "scalar")
+    if (fieldType == "scalar"||fieldType == "scalarPatch")
     {
         volScalarField& field =
             const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
@@ -10621,7 +10674,7 @@ void DASolver::writeSensMapField(
         timeName: the name of time folder to write sens
     */
 
-    if (fieldType == "scalar")
+    if (fieldType == "scalar"||fieldType == "scalarPatch")
     {
         volScalarField sens(
             IOobject(
