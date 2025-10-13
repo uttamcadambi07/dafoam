@@ -152,17 +152,6 @@ public:
         DASolverPtr_->calcdRdActTPsiAD(xvVec, wVec, psi, designVarName, dRdActTPsi);
     }
 
-    /// compute dRdHSC^T*Psi
-    void calcdRdHSCTPsiAD(
-        const Vec xvVec,
-        const Vec wVec,
-        const Vec psi,
-        const word designVarName,
-        Vec dRdHSCTPsi)
-    {
-        DASolverPtr_->calcdRdHSCTPsiAD(xvVec, wVec, psi, designVarName, dRdHSCTPsi);
-    }
-
     /// compute dForcedW
     void calcdForcedWAD(
         const Vec xvVec,
@@ -236,12 +225,12 @@ public:
     }
 
     /// solve the linear equation
-    label solveLinearEqn(
+    void solveLinearEqn(
         const KSP ksp,
         const Vec rhsVec,
         Vec solVec)
     {
-        return DASolverPtr_->solveLinearEqn(ksp, rhsVec, solVec);
+        DASolverPtr_->solveLinearEqn(ksp, rhsVec, solVec);
     }
 
     /// convert the mpi vec to a seq vec
@@ -359,17 +348,6 @@ public:
         DASolverPtr_->calcdFdACTAD(xvVec, wVec, objFuncName, designVarName, dFdACT);
     }
 
-    /// compute dFdHSC
-    void calcdFdHSCAD(
-        const Vec xvVec,
-        const Vec wVec,
-        const word objFuncName,
-        const word designVarName,
-        Vec dFdHSC)
-    {
-        DASolverPtr_->calcdFdHSCAD(xvVec, wVec, objFuncName, designVarName, dFdHSC);
-    }
-
     /// compute dFdACT
     void calcdFdACT(
         const Vec xvVec,
@@ -473,6 +451,12 @@ public:
         return DASolverPtr_->getNCouplingPoints();
     }
 
+    /// Martina 131025
+    /// get the mumber of faces for the patch defined in dictionary
+    label getNLocalFaces(const word& patchName) const
+    {
+        return DASolverPtr_->getNLocalFaces(patchName);
+    }
     // return the number of local mesh points
     label getNLocalPoints() const
     {
@@ -608,9 +592,9 @@ public:
     }
 
     /// get the number of regression model parameters
-    label getNRegressionParameters(word modelName)
+    label getNRegressionParameters()
     {
-        return DASolverPtr_->getNRegressionParameters(modelName);
+        return DASolverPtr_->getNRegressionParameters();
     }
 
     /// call the compute method of the regression model
@@ -620,10 +604,10 @@ public:
     }
 
     /// set the regression parameter
-    void setRegressionParameter(word modelName, label idxI, double val)
+    void setRegressionParameter(label idxI, double val)
     {
         scalar val1 = val;
-        DASolverPtr_->setRegressionParameter(modelName, idxI, val1);
+        DASolverPtr_->setRegressionParameter(idxI, val1);
     }
 
     /// calculte [dR/dRegParameters]^T * psi
@@ -632,10 +616,9 @@ public:
         const double* states,
         const double* parameters,
         const double* seeds,
-        const word modelName,
         double* product)
     {
-        DASolverPtr_->calcdRdRegParTPsiAD(volCoords, states, parameters, seeds, modelName, product);
+        DASolverPtr_->calcdRdRegParTPsiAD(volCoords, states, parameters, seeds, product);
     }
 
     /// compute dFdRegPar AD
@@ -645,10 +628,9 @@ public:
         const double* parameters,
         const word objFuncName,
         const word designVarName,
-        const word modelName,
         double* dFdRegPar)
     {
-        DASolverPtr_->calcdFdRegParAD(volCoords, states, parameters, objFuncName, designVarName, modelName, dFdRegPar);
+        DASolverPtr_->calcdFdRegParAD(volCoords, states, parameters, objFuncName, designVarName, dFdRegPar);
     }
 
     void calcdRdThermalTPsiAD(
@@ -901,12 +883,6 @@ public:
         DASolverPtr_->updateBoundaryConditions(fieldName, fieldType);
     }
 
-    /// update the boundary conditions for all states and intermediate variables
-    void updateStateBoundaryConditions()
-    {
-        DASolverPtr_->updateStateBoundaryConditions();
-    }
-
     /// Calculate the mean, max, and norm2 for all residuals and print it to screen
     void calcPrimalResidualStatistics(const word mode)
     {
@@ -1005,21 +981,9 @@ public:
         pyComputeInterface computeInterface,
         void* compute,
         pyJacVecProdInterface jacVecProdInterface,
-        void* jacVecProd,
-        pySetCharInterface setModelNameInterface,
-        void* setModelName)
+        void* jacVecProd)
     {
-        DASolverPtr_->initTensorFlowFuncs(
-            computeInterface, compute, jacVecProdInterface, jacVecProd, setModelNameInterface, setModelName);
-    }
-
-    /// write the adjoint variables for all states
-    void writeAdjointFields(
-        const word objFunc,
-        const double writeTime,
-        const double* psi)
-    {
-        DASolverPtr_->writeAdjointFields(objFunc, writeTime, psi);
+        DASolverPtr_->initTensorFlowFuncs(computeInterface, compute, jacVecProdInterface, jacVecProd);
     }
 
     /// write the sensitivity map for all wall surfaces

@@ -24,7 +24,6 @@ cdef public api CPointerToPyArray(const double* data, int size) with gil:
 
 ctypedef void (*pyComputeInterface)(const double *, int, double *, int, void *)
 ctypedef void (*pyJacVecProdInterface)(const double *, double *, int, const double *, const double *, int, void *)
-ctypedef void (*pySetCharInterface)(const char *, void *)
 
 cdef void pyCalcBetaCallBack(const double* inputs, int n, double* outputs, int m, void *func):
     inputs_data = CPointerToPyArray(inputs, n)
@@ -37,9 +36,6 @@ cdef void pyCalcBetaJacVecProdCallBack(const double* inputs, double* inputs_b, i
     outputs_data = CPointerToPyArray(outputs, m)
     outputs_b_data = CPointerToPyArray(outputs_b, m)
     (<object>func)(inputs_data, inputs_b_data, n, outputs_data, outputs_b_data, m)
-
-cdef void pySetModelNameCallBack(const char* modelName, void *func):
-    (<object>func)(modelName)
 
 # declare cpp functions
 cdef extern from "DASolvers.H" namespace "Foam":
@@ -56,7 +52,7 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void createMLRKSP(PetscMat, PetscMat, PetscKSP)
         void createMLRKSPMatrixFree(PetscMat, PetscKSP)
         void updateKSPPCMat(PetscMat, PetscKSP)
-        int solveLinearEqn(PetscKSP, PetscVec, PetscVec)
+        void solveLinearEqn(PetscKSP, PetscVec, PetscVec)
         void calcdRdBC(PetscVec, PetscVec, char *, PetscMat)
         void calcdFdBC(PetscVec, PetscVec, char *, char *, PetscVec)
         void calcdFdBCAD(PetscVec, PetscVec, char *, char *, PetscVec)
@@ -67,12 +63,10 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void calcdForcedXvAD(PetscVec, PetscVec, PetscVec, PetscVec)
         void calcdAcousticsdXvAD(PetscVec, PetscVec, PetscVec, PetscVec, char*, char*)
         void calcdRdActTPsiAD(PetscVec, PetscVec, PetscVec, char*, PetscVec)
-        void calcdRdHSCTPsiAD(PetscVec, PetscVec, PetscVec, char*, PetscVec)
         void calcdForcedWAD(PetscVec, PetscVec, PetscVec, PetscVec)
         void calcdAcousticsdWAD(PetscVec, PetscVec, PetscVec, PetscVec, char*, char*)
         void calcdFdACT(PetscVec, PetscVec, char *, char*, char*, PetscVec)
         void calcdFdACTAD(PetscVec, PetscVec, char *, char*, PetscVec)
-        void calcdFdHSCAD(PetscVec, PetscVec, char *, char*, PetscVec)
         void calcdRdAOATPsiAD(PetscVec, PetscVec, PetscVec, char*, PetscVec)
         void calcdRdBCTPsiAD(PetscVec, PetscVec, PetscVec, char*, PetscVec)
         void calcdFdFFD(PetscVec, PetscVec, char *, char *, PetscVec)
@@ -81,8 +75,8 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void calcdRdFieldTPsiAD(PetscVec, PetscVec, PetscVec, char *, PetscVec)
         void calcdFdFieldAD(PetscVec, PetscVec, char *, char *, PetscVec)
         void calcdRdThermalTPsiAD(double *, double *, double *, double *, double *)
-        void calcdRdRegParTPsiAD(double *, double *, double *, double *, char *, double *)
-        void calcdFdRegParAD(double *, double *, double *, char *, char *, char *, double *)
+        void calcdRdRegParTPsiAD(double *, double *, double *, double *, double *)
+        void calcdFdRegParAD(double *, double *, double *, char *, char *, double *)
         void calcdRdWOldTPsiAD(int, PetscVec, PetscVec)
         void convertMPIVec2SeqVec(PetscVec, PetscVec)
         void syncDAOptionToActuatorDVs()
@@ -111,8 +105,8 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void getThermal(double *, double *, double *)
         void getThermalAD(char *, double *, double *, double *, double *)
         void setThermal(double *)
-        int getNRegressionParameters(char *)
-        void setRegressionParameter(char *, int, double)
+        int getNRegressionParameters()
+        void setRegressionParameter(int, double)
         void regressionModelCompute()
         void getOFField(char *, char *, PetscVec)
         void getAcousticData(PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, PetscVec, char*)
@@ -136,7 +130,6 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void setFieldValue4GlobalCellI(char *, double, int, int)
         void setFieldValue4LocalCellI(char *, double, int, int)
         void updateBoundaryConditions(char *, char *)
-        void updateStateBoundaryConditions()
         void calcPrimalResidualStatistics(char *)
         double getForwardADDerivVal(char *)
         void calcResidualVec(PetscVec)
@@ -147,7 +140,7 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void calcdForceProfiledXvWAD(char *, char *, char *, PetscVec, PetscVec, PetscVec, PetscVec)
         void calcdForcedStateTPsiAD(char *, PetscVec, PetscVec, PetscVec, PetscVec)
         int runFPAdj(PetscVec, PetscVec, PetscVec, PetscVec)
-        void initTensorFlowFuncs(pyComputeInterface, void *, pyJacVecProdInterface, void *, pySetCharInterface, void *)
+        void initTensorFlowFuncs(pyComputeInterface, void *, pyJacVecProdInterface, void *)
         void readStateVars(double, int)
         void calcPCMatWithFvMatrix(PetscMat)
         double getEndTime()
@@ -159,7 +152,8 @@ cdef extern from "DASolvers.H" namespace "Foam":
         void writeSensMapSurface(char *, double *, double *, int, double)
         void writeSensMapField(char *, double *, char *, double)
         double getLatestTime()
-        void writeAdjointFields(char *, double, double *)
+        #20250916 Martina
+        int getNLocalFaces(char *)
     
 # create python wrappers that call cpp functions
 cdef class pyDASolvers:
@@ -234,7 +228,7 @@ cdef class pyDASolvers:
         self._thisptr.updateKSPPCMat(PCMat.mat, myKSP.ksp)
     
     def solveLinearEqn(self, KSP myKSP, Vec rhsVec, Vec solVec):
-        return self._thisptr.solveLinearEqn(myKSP.ksp, rhsVec.vec, solVec.vec)
+        self._thisptr.solveLinearEqn(myKSP.ksp, rhsVec.vec, solVec.vec)
 
     def calcdRdBC(self, Vec xvVec, Vec wVec, designVarName, Mat dRdBC):
         self._thisptr.calcdRdBC(xvVec.vec, wVec.vec, designVarName, dRdBC.mat)
@@ -265,9 +259,6 @@ cdef class pyDASolvers:
 
     def calcdRdActTPsiAD(self, Vec xvVec, Vec wVec, Vec psi, designVarName, Vec dRdActTPsi):
         self._thisptr.calcdRdActTPsiAD(xvVec.vec, wVec.vec, psi.vec, designVarName, dRdActTPsi.vec)
-    
-    def calcdRdHSCTPsiAD(self, Vec xvVec, Vec wVec, Vec psi, designVarName, Vec dRdHSCTPsi):
-        self._thisptr.calcdRdHSCTPsiAD(xvVec.vec, wVec.vec, psi.vec, designVarName, dRdHSCTPsi.vec)
 
     def calcdForcedWAD(self, Vec xvVec, Vec wVec, Vec fBarVec, Vec dForcedW):
         self._thisptr.calcdForcedWAD(xvVec.vec, wVec.vec, fBarVec.vec, dForcedW.vec)
@@ -277,9 +268,6 @@ cdef class pyDASolvers:
 
     def calcdFdACTAD(self, Vec xvVec, Vec wVec, objFuncName, designVarName, Vec dFdACT):
         self._thisptr.calcdFdACTAD(xvVec.vec, wVec.vec, objFuncName, designVarName, dFdACT.vec)
-    
-    def calcdFdHSCAD(self, Vec xvVec, Vec wVec, objFuncName, designVarName, Vec dFdHSC):
-        self._thisptr.calcdFdHSCAD(xvVec.vec, wVec.vec, objFuncName, designVarName, dFdHSC.vec)
     
     def calcdFdACT(self, Vec xvVec, Vec wVec, objFuncName, designVarName, designVarType, Vec dFdACT):
         self._thisptr.calcdFdACT(xvVec.vec, wVec.vec, objFuncName, designVarName, designVarType, dFdACT.vec)
@@ -387,7 +375,10 @@ cdef class pyDASolvers:
     
     def getNLocalCells(self):
         return self._thisptr.getNLocalCells()
-    
+#20251013 Martina
+    def getNLocalFaces(self, patchName):
+        return self._thisptr.getNLocalFaces(patchName)
+
     def getNLocalPoints(self):
         return self._thisptr.getNLocalPoints()
     
@@ -494,11 +485,11 @@ cdef class pyDASolvers:
         cdef double *thermal_data = <double*>thermal.data
         self._thisptr.setThermal(thermal_data)
     
-    def getNRegressionParameters(self, modelName):
-        return self._thisptr.getNRegressionParameters(modelName)
+    def getNRegressionParameters(self):
+        return self._thisptr.getNRegressionParameters()
     
-    def setRegressionParameter(self, modelName, idx, val):
-        self._thisptr.setRegressionParameter(modelName, idx, val)
+    def setRegressionParameter(self, idx, val):
+        self._thisptr.setRegressionParameter(idx, val)
     
     def regressionModelCompute(self):
         self._thisptr.regressionModelCompute()
@@ -508,14 +499,13 @@ cdef class pyDASolvers:
             np.ndarray[double, ndim=1, mode="c"] states,
             np.ndarray[double, ndim=1, mode="c"] parameters,
             np.ndarray[double, ndim=1, mode="c"] seeds,
-            modelName,
             np.ndarray[double, ndim=1, mode="c"] product):
         
         assert len(volCoords) == self.getNLocalPoints() * 3, "invalid array size!"
         assert len(states) == self.getNLocalAdjointStates(), "invalid array size!"
-        assert len(parameters) == self.getNRegressionParameters(modelName), "invalid array size!"
+        assert len(parameters) == self.getNRegressionParameters(), "invalid array size!"
         assert len(seeds) == self.getNLocalAdjointStates(), "invalid array size!"
-        assert len(product) == self.getNRegressionParameters(modelName), "invalid array size!"
+        assert len(product) == self.getNRegressionParameters(), "invalid array size!"
 
         cdef double *volCoords_data = <double*>volCoords.data
         cdef double *states_data = <double*>states.data
@@ -528,7 +518,6 @@ cdef class pyDASolvers:
             states_data, 
             parameters_data, 
             seeds_data, 
-            modelName,
             product_data)
     
     def calcdFdRegParAD(self, 
@@ -537,13 +526,12 @@ cdef class pyDASolvers:
             np.ndarray[double, ndim=1, mode="c"] parameters,
             objFuncName,
             designVarName,
-            modelName,
             np.ndarray[double, ndim=1, mode="c"] dFdRegPar):
         
         assert len(volCoords) == self.getNLocalPoints() * 3, "invalid array size!"
         assert len(states) == self.getNLocalAdjointStates(), "invalid array size!"
-        assert len(parameters) == self.getNRegressionParameters(modelName), "invalid array size!"
-        assert len(dFdRegPar) == self.getNRegressionParameters(modelName), "invalid array size!"
+        assert len(parameters) == self.getNRegressionParameters(), "invalid array size!"
+        assert len(dFdRegPar) == self.getNRegressionParameters(), "invalid array size!"
 
         cdef double *volCoords_data = <double*>volCoords.data
         cdef double *states_data = <double*>states.data
@@ -556,7 +544,6 @@ cdef class pyDASolvers:
             parameters_data, 
             objFuncName,
             designVarName,
-            modelName,
             dFdRegPar_data)
 
     def getAcousticData(self, Vec x, Vec y, Vec z, Vec nX, Vec nY, Vec nZ, Vec a, Vec fX, Vec fY, Vec fZ, groupName):
@@ -609,9 +596,6 @@ cdef class pyDASolvers:
     
     def updateBoundaryConditions(self, fieldName, fieldType):
         self._thisptr.updateBoundaryConditions(fieldName, fieldType)
-    
-    def updateStateBoundaryConditions(self):
-        self._thisptr.updateStateBoundaryConditions()
     
     def calcPrimalResidualStatistics(self, mode):
         self._thisptr.calcPrimalResidualStatistics(mode)
@@ -667,8 +651,8 @@ cdef class pyDASolvers:
     def runFPAdj(self, Vec xvVec, Vec wVec, Vec dFdW, Vec psi):
         return self._thisptr.runFPAdj(xvVec.vec, wVec.vec, dFdW.vec, psi.vec)
     
-    def initTensorFlowFuncs(self, compute, jacVecProd, setModelName):
-        self._thisptr.initTensorFlowFuncs(pyCalcBetaCallBack, <void*>compute, pyCalcBetaJacVecProdCallBack, <void*>jacVecProd, pySetModelNameCallBack, <void*>setModelName)
+    def initTensorFlowFuncs(self, compute, jacVecProd):
+        self._thisptr.initTensorFlowFuncs(pyCalcBetaCallBack, <void*>compute, pyCalcBetaJacVecProdCallBack, <void*>jacVecProd)
     
     def writeSensMapSurface(self, 
             name,
@@ -699,10 +683,12 @@ cdef class pyDASolvers:
         nCells = self.getNLocalCells()
         if fieldType == "scalar":
             assert len(dFdField) == nCells, "invalid array size!"
+        elif fieldType == "scalarPatch":
+            assert len(dFdField) == nCells, "invalid array size!"
         elif fieldType == "vector":
             assert len(dFdField) == 3 * nCells, "invalid array size!"
         else:
-            print("fieldType can be either scalar or vector")
+            print("fieldType can be either scalar, scalarPatch or vector")
             exit(1)
 
         cdef double *dFdField_data = <double*>dFdField.data
@@ -715,12 +701,3 @@ cdef class pyDASolvers:
     
     def getLatestTime(self):
         return self._thisptr.getLatestTime()
-    
-    def writeAdjointFields(self, objFunc, writeTime, np.ndarray[double, ndim=1, mode="c"] psi):
-        nAdjStates = self.getNLocalAdjointStates()
-
-        assert len(psi) == nAdjStates, "invalid array size!"
-
-        cdef double *psi_data = <double*>psi.data
-
-        return self._thisptr.writeAdjointFields(objFunc.encode(), writeTime, psi_data)

@@ -52,8 +52,8 @@
 #include "nutWallFunctionFvPatchScalarField.H"
 #include "DAModel.H"
 #include "DAOption.H"
-#include "fvMesh.H"
-#include "IOdictionary.H"
+//#include "fvMesh.H"
+//#include "IOdictionary.H"
 #include "primitiveFieldsFwd.H"
 #include "surfaceFieldsFwd.H"
 #include "geometricOneField.H"
@@ -68,22 +68,22 @@ namespace Foam
 \*---------------------------------------------------------------------------*/
 
 class nutUtauWallFunctionFvPatchScalarFieldDF
-    : public nutWallFunctionFvPatchScalarField,
-      public IOdictionary
+    : public nutWallFunctionFvPatchScalarField
+//      public IOdictionary
 {
 protected:
 
-        const Time& runTime_;
-        const fvMesh& mesh_;
-
-	//- Boundary condition optimisation variable
-	volScalarField etaWallDV_;
+/*        const Time& runTime_;
+        const fvMesh& mesh_;*/
 
         //- Roughness height [m]
         scalarField Ks_;
 
         //- Roughness constant (dimensionless)
         scalarField Cs_;
+
+	//- Patch-local design variable, exposed via objectRegistry for adjoint updates
+	volScalarField& etaWallDV;
 
     // Protected Member Functions
 
@@ -127,7 +127,7 @@ public:
             const fvPatchFieldMapper&
         );
 
-	//-Construct eta field from IOdictionary
+/*	//-Construct eta field from IOdictionary
 	nutUtauWallFunctionFvPatchScalarFieldDF
 	(
             const fvPatch&,
@@ -136,7 +136,7 @@ public:
             const surfaceScalarField&,
             const surfaceScalarField&,
             const word&
-	);
+	);*/
 
         //- Construct as copy
         nutUtauWallFunctionFvPatchScalarFieldDF
@@ -187,6 +187,11 @@ public:
             {
                 return Cs_;
             }
+/*	    //- Return eta
+	    scalarField& etaWallDV()
+	    {
+		return etaWallDV_;
+	    }*/
 
     // Evaluate
 
@@ -202,9 +207,10 @@ public:
         virtual void rmap(const fvPatchScalarField&, const labelList&);
 
     // I-O
-
+	//- Wrap etaWallDV_ as a volScalarField and register it for access in DASolver
+	virtual volScalarField& registerEtaField(const objectRegistry&);
         //- Write
-//        virtual void write(Ostream& os) const;
+	virtual void write(Ostream& os) const;
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

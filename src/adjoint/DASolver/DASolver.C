@@ -1193,8 +1193,7 @@ void DASolver::getOFField(
 
     PetscScalar* vecArray;
     VecGetArray(field, &vecArray);
-
-    if (fieldType == "scalar"||fieldType == "scalarPatch")
+    if (fieldType == "scalar")
     {
         const volScalarField& field = meshPtr_->thisDb().lookupObject<volScalarField>(fieldName);
         forAll(field, cellI)
@@ -1202,7 +1201,28 @@ void DASolver::getOFField(
             assignValueCheckAD(vecArray[cellI], field[cellI]);
         }
     }
+//  Martina12092025
+    else if (fieldType == "scalarPatch")
+    {
+	const volScalarField& fld =
+        meshPtr_->thisDb().lookupObject<volScalarField>(fieldName);
 
+    	dictionary designVarDict = daOptionPtr_->getAllOptions().subDict("designVar");
+    	dictionary dvSubDict = designVarDict.subDict(fieldName);
+    	wordList patches; dvSubDict.readEntry("patches", patches);
+
+    	const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
+    	if (patchID < 0) FatalErrorInFunction << "Patch not found: " << patches[0] << abort(FatalError);
+
+    	const fvPatchScalarField& pF = fld.boundaryField()[patchID];
+
+    	// IMPORTANT: decide on your global ordering for faces on this patch.
+    	forAll(pF, faceI)
+    	{
+    	    assignValueCheckAD(vecArray[faceI], pF[faceI]); // <- faces, not cells
+    	}
+
+    }
     else if (fieldType == "vector")
     {
         const volVectorField& field = meshPtr_->thisDb().lookupObject<volVectorField>(fieldName);
@@ -5174,6 +5194,27 @@ void DASolver::calcdFdFieldAD(
     daOptionPtr_->getAllOptions().readEntry<wordList>("writeJacobians", writeJacobians);
     if (writeJacobians.found("dFdField") || writeJacobians.found("all"))
     {
+//martina16092025
+/*
+	if (designVarName == "etaWallDV")
+	{
+   	    wordList patches;
+    	    dvSubDict.readEntry("patches", patches);
+
+            const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
+// this doesn't work because dFdField is a PETSc vector with no boundary field
+// this could be what's wrong and why dFdField has the size of the internal field and is 0 everywhere
+            const fvPatchScalarField& pSens = dFdField.boundaryField()[patchID];
+	    scalarField dFdFieldp(pSens.size());
+	    forAll(pSens, faceI)
+	    {
+		dFdFieldp[faceI] = pSens[faceI];
+	    }
+            word outputName2 = "dFdField_patch_"+designVarName;
+	    DAUtility::writeVectorBinary(dFdFieldp, outputName2);
+            DAUtility::writeVectorASCII(dFdFieldp, outputName2);
+	}
+*/
         word outputName = "dFdField_" + designVarName;
         DAUtility::writeVectorBinary(dFdField, outputName);
         DAUtility::writeVectorASCII(dFdField, outputName);
@@ -7622,22 +7663,35 @@ void DASolver::registerFieldVariableInput4AD(
             this->globalADTape_.registerInput(state[cellI]);
         }
     }
-    // to be checked
+    // Martina08092025
     else if (fieldType == "scalarPatch")
     {
-    volScalarField& state = const_cast<volScalarField&>(
+    	volScalarField& state = const_cast<volScalarField&>(
             meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
-        forAll(state.boundaryField(), patchI)
-        {
-        // added 20/08/2024
-        if (state.boundaryFieldRef()[patchI].type() == "nutUtauWallFunctionDF")
-            {
-            forAll(state.boundaryField()[patchI], faceI)
-                {
-                this->globalADTape_.registerInput(state.boundaryFieldRef()[patchI][faceI]);
-                }
-            }
-        }
+
+	dictionary designVarDict = daOptionPtr_->getAllOptions().subDict("designVar");
+    	dictionary dvSubDict = designVarDict.subDict(fieldName);
+    	wordList patches;
+    	dvSubDict.readEntry("patches", patches);
+
+    	if (patches.empty())
+    	{
+    	    FatalErrorInFunction << "No 'patches' specified for DV." << abort(FatalError);
+    	}
+
+    	const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
+    	if (patchID < 0)
+    	{
+    	    FatalErrorInFunction
+        	<< "Patch '" << patches[0] << "' not found in boundaryMesh()."
+            	<< abort(FatalError);
+    	}
+
+    	auto& pField = state.boundaryFieldRef()[patchID];
+    	forAll(pField, faceI)
+    	{
+    	    this->globalADTape_.registerInput(pField[faceI]);
+    	}
     }
     else if (fieldType == "vector")
     {
@@ -7686,22 +7740,34 @@ void DASolver::deactivateFieldVariableInput4AD(
             this->globalADTape_.deactivateValue(state[cellI]);
         }
     }
-    //to be checked
+//Martina
     else if (fieldType == "scalarPatch")
     {
         volScalarField& state = const_cast<volScalarField&>(
             meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
 
-        forAll(state.boundaryField(), patchI)
+	dictionary designVarDict = daOptionPtr_->getAllOptions().subDict("designVar");
+        dictionary dvSubDict = designVarDict.subDict(fieldName);
+        wordList patches;
+        dvSubDict.readEntry("patches", patches);
+
+        if (patches.empty())
         {
-            // added 20/08/2024
-            if (state.boundaryFieldRef()[patchI].type() == "nutUtauWallFunctionDF")
-            {
-                forAll(state.boundaryField()[patchI], faceI)
-                {
-                    this-> globalADTape_.deactivateValue(state.boundaryFieldRef()[patchI][faceI]);
-                }
-            }
+            FatalErrorInFunction << "No 'patches' specified for DV." << abort(FatalError);
+        }
+
+        const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
+        if (patchID < 0)
+        {
+            FatalErrorInFunction
+                << "Patch '" << patches[0] << "' not found in boundaryMesh()."
+                << abort(FatalError);
+        }
+
+        auto& pField = state.boundaryFieldRef()[patchID];
+        forAll(pField, faceI)
+        {
+            this->globalADTape_.deactivateValue(pField[faceI]);
         }
     }
     else if (fieldType == "vector")
@@ -8419,22 +8485,34 @@ void DASolver::assignFieldGradient2Vec(
             vecArray[cellI] = state[cellI].getGradient();
         }
     }
-    //to be checked
+    //Martina 08092025
     else if (fieldType == "scalarPatch")
     {
         volScalarField& state = const_cast<volScalarField&>(
             meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
 
-        forAll(state.boundaryField(), patchI)
+        dictionary designVarDict = daOptionPtr_->getAllOptions().subDict("designVar");
+        dictionary dvSubDict = designVarDict.subDict(fieldName);
+        wordList patches;
+        dvSubDict.readEntry("patches", patches);
+
+        if (patches.empty())
         {
-            // added 20/08/2024
-            if (state.boundaryFieldRef()[patchI].type() == "nutUtauWallFunctionDF")
-            {
-                forAll(state.boundaryField()[patchI], faceI)
-                    {
-                    vecArray[faceI] = state.boundaryFieldRef()[patchI][faceI].getGradient();
-                        }
-            }
+            FatalErrorInFunction << "No 'patches' specified for DV." << abort(FatalError);
+        }
+
+        const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
+        if (patchID < 0)
+        {
+            FatalErrorInFunction
+                << "Patch '" << patches[0] << "' not found in boundaryMesh()."
+                << abort(FatalError);
+        }
+
+        auto& pField = state.boundaryFieldRef()[patchID];
+        forAll(pField, faceI)
+        {
+            vecArray[faceI] = pField[faceI].getGradient();
         }
     }
     else if (fieldType == "vector")
@@ -8610,7 +8688,8 @@ void DASolver::setFieldValue4LocalCellI(
     const word fieldName,
     const scalar val,
     const label localCellI,
-    const label compI)
+    const label compI
+)
 {
     /*
     Description:
@@ -8634,9 +8713,30 @@ void DASolver::setFieldValue4LocalCellI(
     }
     else if (meshPtr_->thisDb().foundObject<volScalarField>(fieldName))
     {
-        volScalarField& field =
+	if (fieldName == "etaWallDV")
+	{
+	    volScalarField& fld =
             const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
-        field[localCellI] = val;
+
+    	    dictionary designVarDict = daOptionPtr_->getAllOptions().subDict("designVar");
+    	    dictionary dvSubDict = designVarDict.subDict(fieldName);
+    	    wordList patches; dvSubDict.readEntry("patches", patches);
+
+    	    const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
+            if (patchID < 0) FatalErrorInFunction << "Patch not found: " << patches[0] << abort(FatalError);
+            fvPatchScalarField& pF = fld.boundaryFieldRef()[patchID];
+
+	    forAll(pF, faceI)
+	    {
+		 pF[faceI] = val;
+	    }
+	}
+	else
+	{
+            volScalarField& field =
+            	const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
+    	    field[localCellI] = val;
+	}
     }
     else
     {
@@ -8649,7 +8749,8 @@ void DASolver::setFieldValue4GlobalCellI(
     const word fieldName,
     const scalar val,
     const label globalCellI,
-    const label compI)
+    const label compI
+)
 {
     /*
     Description:
@@ -8795,7 +8896,7 @@ void DASolver::updateBoundaryConditions(
 
         fieldType: either scalar or vector
     */
-
+//martina old 08092025
     if (fieldType == "scalar"||fieldType == "scalarPatch")
     {
         volScalarField& field =
@@ -9165,6 +9266,15 @@ void DASolver::disableStateAutoWrite()
             const_cast<volVectorField&>(meshPtr_->thisDb().lookupObject<volVectorField>("fvSource"));
         fvSource.writeOpt() = IOobject::NO_WRITE;
     }
+
+//Martina 18072025
+    if (meshPtr_->thisDb().foundObject<volScalarField>("etaWallDV"))
+    {
+        volScalarField& etaWallDV =
+            const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>("etaWallDV"));
+        etaWallDV.writeOpt() = IOobject::NO_WRITE;
+    }
+//end18072025
 }
 
 void DASolver::writeAdjStates(const label writeMesh)
@@ -9242,6 +9352,14 @@ void DASolver::writeAdjStates(const label writeMesh)
             const volVectorField& fvSource = meshPtr_->thisDb().lookupObject<volVectorField>("fvSource");
             fvSource.write();
         }
+
+//Martina18072025
+        if (meshPtr_->thisDb().foundObject<volScalarField>("etaWallDV"))
+        {
+		const volScalarField& etaWallDV = meshPtr_->thisDb().lookupObject<volScalarField>("etaWallDV");
+		etaWallDV.write();
+        }
+//end18072025
     }
 
     if (writeMesh)
@@ -9942,8 +10060,7 @@ void DASolver::writeSensMapField(
 
         timeName: the name of time folder to write sens
     */
-
-    if (fieldType == "scalar"||fieldType == "scalarPatch")
+    if (fieldType == "scalar")
     {
         volScalarField sens(
             IOobject(
@@ -9972,6 +10089,34 @@ void DASolver::writeSensMapField(
         sens.write();
 
         runTimePtr_->setTime(t, timeIndex);
+    }
+//  Martina12092025
+    else if (fieldType == "scalarPatch")
+    {
+	volScalarField sens(
+    	    IOobject(name, meshPtr_->time().timeName(), meshPtr_(), IOobject::NO_READ, IOobject::NO_WRITE),
+    	    meshPtr_(),
+    	    dimensionedScalar(name, dimensionSet(0,0,0,0,0,0,0), 0.0),
+    	    "fixedValue");
+
+    	// zero internals (already 0), fill patch faces
+    	dictionary designVarDict = daOptionPtr_->getAllOptions().subDict("designVar");
+    	dictionary dvSubDict = designVarDict.subDict("etaWallDV");
+    	wordList patches; dvSubDict.readEntry("patches", patches);
+    	const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
+
+    	fvPatchScalarField& pF = sens.boundaryFieldRef()[patchID];
+    	forAll(pF, faceI)
+    	{
+    	    pF[faceI] = dFdField[faceI]; // map face-wise gradients
+    	}
+
+    	// write at desired time
+    	scalar t = runTimePtr_->timeOutputValue();
+    	label timeIndex = runTimePtr_->timeIndex();
+    	runTimePtr_->setTime(timeName, timeIndex);
+    	sens.write();
+    	runTimePtr_->setTime(t, timeIndex);
     }
     else if (fieldType == "vector")
     {
@@ -10014,6 +10159,27 @@ void DASolver::writeSensMapField(
             << "fieldType not supported!"
             << abort(FatalError);
     }
+}
+
+label DASolver::getNLocalFaces(const word& patchName) const
+{
+
+    // Get the list of all boundary patches from the mesh object
+    const fvBoundaryMesh& boundary = meshPtr_->boundary();
+
+    // Find the numerical ID of the patch from its name
+    const label patchID = boundary.findPatchID(patchName);
+
+    // Error handling: if the patch name doesn't exist, stop with an error
+    if (patchID == -1)
+    {
+        FatalErrorIn("DASolver::getNLocalFaces(const word&)")
+            << "Cannot find patch with name " << patchName << nl
+            << abort(FatalError);
+    }
+
+    // Access the patch by its ID and return its size (number of faces)
+    return boundary[patchID].size();
 }
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

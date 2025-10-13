@@ -32,6 +32,8 @@ i.e. a simplified nut wall function usable with any turbulence model (only avail
 \*---------------------------------------------------------------------------*/
 #include "nutUtauWallFunctionFvPatchScalarFieldDF.H"
 #include "DATurbulenceModel.H"
+#include "IOstreams.H"
+#include "error.H"
 #include "fvPatchFieldMapper.H"
 #include "volFields.H"
 #include "addToRunTimeSelectionTable.H"
@@ -131,11 +133,10 @@ tmp<scalarField> nutUtauWallFunctionFvPatchScalarFieldDF::calcUTau
     tmp<scalarField> tuTau(new scalarField(patch().size(), 0.0));
     scalarField& uTau = tuTau.ref();
 
-    fvPatchScalarField etaPatch_ = etaWallDV_.boundaryField()[patchi];
+    scalarField etaPatch_ = etaWallDV.boundaryField()[patchi];
 
     forAll(uTau, facei)
     {
-//      scalar ut = sqrt(nuw[facei]*magGradU[facei]);
         scalar ut = sqrt((nutw[facei] + nuw[facei])*magGradU[facei]);
 
         if (ut > ROOTVSMALL)
@@ -156,6 +157,7 @@ tmp<scalarField> nutUtauWallFunctionFvPatchScalarFieldDF::calcUTau
 
                 if (2.25 < KsPlus)
                 {
+		    //Info<< "Wall is rough " << endl;
                     scalar fn = fnRough(KsPlus, Cs_[facei]);
                     Edash /= fn;
                     scalar logTerm = log(yPlus * Edash / etaPatch_[facei]);
@@ -164,6 +166,7 @@ tmp<scalarField> nutUtauWallFunctionFvPatchScalarFieldDF::calcUTau
 
                     if (KsPlus < 90.0)
                     {
+			//Info<< "Transitionally rough" << endl;
                         const scalar a = max((KsPlus - 2.25)/87.75 + Cs_[facei] * KsPlus, VSMALL);
                         const scalar b = sin(0.4258 * (log(KsPlus) - 0.811));
 
@@ -174,6 +177,7 @@ tmp<scalarField> nutUtauWallFunctionFvPatchScalarFieldDF::calcUTau
                     }
                     else
                     {
+			//Info<< "Fully rough" << endl;
                         dfn = Cs_[facei] * Ks_[facei] / nuw[facei];
                     }
 
@@ -186,6 +190,7 @@ tmp<scalarField> nutUtauWallFunctionFvPatchScalarFieldDF::calcUTau
                 }
                 else
                 {
+		    //Info<< "Wall is smooth"<< endl;
                     scalar logTerm = log(yPlus * Edash / etaPatch_[facei]);
 
                     scalar f = ut / kappa_ * logTerm - magUp[facei];
@@ -214,8 +219,7 @@ tmp<scalarField> nutUtauWallFunctionFvPatchScalarFieldDF::calcUTau
 }
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
-
-// 1) Basic constructor from fvPatch and internalField
+//1)
 nutUtauWallFunctionFvPatchScalarFieldDF::
 nutUtauWallFunctionFvPatchScalarFieldDF
 (
@@ -226,32 +230,11 @@ nutUtauWallFunctionFvPatchScalarFieldDF
     nutWallFunctionFvPatchScalarField(p, iF),
     Ks_(p.size(), 0.0),
     Cs_(p.size(), 0.0),
-    IOdictionary
-    (
-        IOobject
-        (
-            IOobject::groupName("turbulenceProperties", iF.group()),
-            iF.time().constant(),
-            iF.db(),
-            IOobject::MUST_READ_IF_MODIFIED,
-            IOobject::NO_WRITE
-        )
-    ),
-    runTime_(iF.time()),
-    mesh_(iF.mesh()),
-    etaWallDV_(
-        IOobject(
-            "etaWallDV",
-            mesh_.time().timeName(),
-            mesh_,
-            IOobject::READ_IF_PRESENT,
-            IOobject::AUTO_WRITE),
-        mesh_,
-        dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
-        "zeroGradient")
-{}
+    etaWallDV(registerEtaField(iF.db()))
+{
+}
 
-// 2) Constructor from fvPatch, internalField and dictionary (reading parameters from input dictionary)
+//2)
 nutUtauWallFunctionFvPatchScalarFieldDF::
 nutUtauWallFunctionFvPatchScalarFieldDF
 (
@@ -263,95 +246,11 @@ nutUtauWallFunctionFvPatchScalarFieldDF
     nutWallFunctionFvPatchScalarField(p, iF, dict),
     Ks_("Ks", dict, p.size()),
     Cs_("Cs", dict, p.size()),
-    IOdictionary
-    (
-        IOobject
-        (
-            IOobject::groupName("turbulenceProperties", iF.group()),
-            iF.time().constant(),
-            iF.db(),
-            IOobject::MUST_READ_IF_MODIFIED,
-            IOobject::NO_WRITE
-        )
-    ),
-    runTime_(iF.time()),
-    mesh_(iF.mesh()),
-    etaWallDV_
-    (
-        IOobject
-        (
-            "etaWallDV",
-            mesh_.time().timeName(),
-            mesh_,
-            IOobject::READ_IF_PRESENT,
-            IOobject::AUTO_WRITE
-        ),
-        mesh_,
-        dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
-        "zeroGradient"
-    )
-{}
+    etaWallDV(registerEtaField(iF.db()))
+{
+}
 
-// 3) Copy constructor with patchFieldMapper (used during mesh changes)
-nutUtauWallFunctionFvPatchScalarFieldDF::
-nutUtauWallFunctionFvPatchScalarFieldDF
-(
-    const nutUtauWallFunctionFvPatchScalarFieldDF& ptf,
-    const fvPatch& p,
-    const DimensionedField<scalar, volMesh>& iF,
-    const fvPatchFieldMapper& mapper
-)
-:
-    nutWallFunctionFvPatchScalarField(ptf, p, iF, mapper),
-    IOdictionary(ptf),
-    runTime_(ptf.runTime_),
-    mesh_(ptf.mesh_),
-    etaWallDV_(ptf.etaWallDV_),
-    Ks_(ptf.Ks_, mapper),
-    Cs_(ptf.Cs_, mapper)
-{}
-
-// 4) Construct eta
-nutUtauWallFunctionFvPatchScalarFieldDF::
-nutUtauWallFunctionFvPatchScalarFieldDF
-(
-    const fvPatch& p,
-    const DimensionedField<scalar, volMesh>& iF,
-    const volVectorField& U,
-    const surfaceScalarField& alphaRhoPhi,
-    const surfaceScalarField& phi,
-    const word& propertiesName
-)
-:
-    nutWallFunctionFvPatchScalarField(p,iF),
-    IOdictionary
-    (
-        IOobject
-        (
-            IOobject::groupName(propertiesName, alphaRhoPhi.group()),
-            U.time().constant(),
-            U.db(),
-            IOobject::MUST_READ_IF_MODIFIED,
-            IOobject::NO_WRITE
-        )
-    ),
-    runTime_(U.time()),
-    mesh_(U.mesh()),
-    Ks_("Ks", *this, p.size()),
-    Cs_("Cs", *this, p.size()),
-    etaWallDV_(
-        IOobject(
-            "etaWallDV",
-            mesh_.time().timeName(),
-            mesh_,
-            IOobject::READ_IF_PRESENT,
-            IOobject::AUTO_WRITE),
-        mesh_,
-        dimensionedScalar("etaWallDV", dimensionSet(0, 0, 0, 0, 0, 0, 0), 1.0),
-        "zeroGradient")
-{}
-
-// 5) Copy constructor (normal copy)
+//3)
 nutUtauWallFunctionFvPatchScalarFieldDF::
 nutUtauWallFunctionFvPatchScalarFieldDF
 (
@@ -361,13 +260,11 @@ nutUtauWallFunctionFvPatchScalarFieldDF
     nutWallFunctionFvPatchScalarField(wfpsf),
     Ks_(wfpsf.Ks_),
     Cs_(wfpsf.Cs_),
-    IOdictionary(wfpsf),
-    runTime_(wfpsf.runTime_),
-    mesh_(wfpsf.mesh_),
-    etaWallDV_(wfpsf.etaWallDV_)
-{}
+    etaWallDV(wfpsf.etaWallDV)
+{
+}
 
-// 6) Copy constructor with new internalField (for field resizing/copy)
+//4)
 nutUtauWallFunctionFvPatchScalarFieldDF::
 nutUtauWallFunctionFvPatchScalarFieldDF
 (
@@ -378,11 +275,27 @@ nutUtauWallFunctionFvPatchScalarFieldDF
     nutWallFunctionFvPatchScalarField(wfpsf, iF),
     Ks_(wfpsf.Ks_),
     Cs_(wfpsf.Cs_),
-    IOdictionary(wfpsf),
-    runTime_(wfpsf.runTime_),
-    mesh_(wfpsf.mesh_),
-    etaWallDV_(wfpsf.etaWallDV_)
-{}
+    etaWallDV(registerEtaField(iF.db()))
+{
+}
+
+//5)
+nutUtauWallFunctionFvPatchScalarFieldDF::
+nutUtauWallFunctionFvPatchScalarFieldDF
+(
+    const nutUtauWallFunctionFvPatchScalarFieldDF& ptf,
+    const fvPatch& p,
+    const DimensionedField<scalar, volMesh>& iF,
+    const fvPatchFieldMapper& mapper
+)
+:
+    nutWallFunctionFvPatchScalarField(ptf, p, iF, mapper),
+    Ks_(ptf.Ks_, mapper),
+    Cs_(ptf.Cs_, mapper),
+    etaWallDV(registerEtaField(iF.db()))
+{
+}
+
 
 // * * * * * * * * * * * * Member Functions * * * * * * * * * * * * * * * * * //
 
@@ -414,6 +327,7 @@ void Foam::nutUtauWallFunctionFvPatchScalarFieldDF::autoMap
     nutWallFunctionFvPatchScalarField::autoMap(m);
     Ks_.autoMap(m);
     Cs_.autoMap(m);
+    etaWallDV.autoMap(m);
 }
 
 void Foam::nutUtauWallFunctionFvPatchScalarFieldDF::rmap
@@ -429,6 +343,41 @@ void Foam::nutUtauWallFunctionFvPatchScalarFieldDF::rmap
 
     Ks_.rmap(nrwfpsf.Ks_, addr);
     Cs_.rmap(nrwfpsf.Cs_, addr);
+    etaWallDV.rmap(nrwfpsf.etaWallDV, addr);
+}
+
+volScalarField& nutUtauWallFunctionFvPatchScalarFieldDF::registerEtaField(const objectRegistry& db)
+{
+    if (!this->db().foundObject<volScalarField>("etaWallDV"))
+    {
+
+        volScalarField* etaWallDVPtr = new volScalarField
+        (
+            IOobject(
+                "etaWallDV",
+                this->db().time().timeName(),
+                this->db(),
+                IOobject::NO_READ,
+                IOobject::AUTO_WRITE,
+                true  // no register automatically
+            ),
+            this->patch().boundaryMesh().mesh(),
+            dimensionedScalar("etaWallDV", dimensionSet(0,0,0,0,0,0,0), 20.0),
+	    fixedValueFvPatchScalarField::typeName
+        );
+    }
+    // Now that we know it exists, look it up and return it
+    return const_cast<volScalarField&>
+    (
+        db.lookupObject<volScalarField>("etaWallDV")
+    );
+}
+
+void nutUtauWallFunctionFvPatchScalarFieldDF::write(Ostream& os) const
+{
+    nutWallFunctionFvPatchScalarField::write(os);
+
+    os.writeKeyword("etaWallDV") << etaWallDV << token::END_STATEMENT << nl;
 }
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

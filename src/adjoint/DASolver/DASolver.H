@@ -205,37 +205,6 @@ protected:
     /// initial values for validateStates
     HashTable<scalar> initStateVals_;
 
-    /// whether to use mean states for steady-solvers
-    label useMeanStates_ = 0;
-    /// if the meanStates is used, what is the step-averaging start
-    scalar meanStateStart_ = 0.5;
-    /// whether we have calculated the meanStates, if not (flow converge before meanStateStart_), we will not use meanStates
-    label meanStatesCalculated_ = 0;
-
-    /// step-averaged scalar states
-    PtrList<volScalarField> meanVolScalarStates_;
-
-    /// step-averaged model states
-    PtrList<volScalarField> meanModelStates_;
-
-    /// step-averaged vector states
-    PtrList<volVectorField> meanVolVectorStates_;
-
-    /// step-averaged surfaceScalar states
-    PtrList<surfaceScalarField> meanSurfaceScalarStates_;
-
-    /// whether to use the primal's std as the convergence criterion
-    label primalObjStdActive_;
-
-    /// the step series of the primal objective, used if primalObjStdTol->active is True
-    scalarList primalObjSeries_;
-
-    /// the standard deviation of the primal objective, used if primalObjStdTol->active is True
-    scalar primalObjStd_;
-
-    /// the tolerance of the primal objective std, used if primalObjStdTol->active is True
-    scalar primalObjStdTol_;
-
 public:
     /// Runtime type information
     TypeName("DASolver");
@@ -285,18 +254,6 @@ public:
         const Vec wVec,
         Vec dFdW,
         Vec psi);
-
-    /// calculate the step-averaged mean states for steady solvers
-    void calcMeanStates();
-
-    /// initialize the meanStates if needed
-    void initMeanStates();
-
-    /// zero out the mean states before calculating the meanStates
-    void zeroMeanStates();
-
-    /// assign meanStates to states when the primal is done.
-    void assignMeanStatesToStates();
 
     /// assign primal variables based on the current time instance
     void setTimeInstanceField(const label instanceI);
@@ -581,13 +538,6 @@ public:
         const Vec psi,
         const word designVarName,
         Vec dRdActTPsi);
-    
-    void calcdRdHSCTPsiAD(
-        const Vec xvVec,
-        const Vec wVec,
-        const Vec psi,
-        const word designVarName,
-        Vec dRdHSCTPsi);
 
     void calcdForcedWAD(
         const Vec xvVec,
@@ -610,14 +560,6 @@ public:
         const word objFuncName,
         const word designVarName,
         Vec dFdACT);
-    
-    /// compute dFdHSC AD
-    void calcdFdHSCAD(
-        const Vec xvVec,
-        const Vec wVec,
-        const word objFuncName,
-        const word designVarName,
-        Vec dFdHSC);
 
     /// compute dFdRegPar AD
     void calcdFdRegParAD(
@@ -626,7 +568,6 @@ public:
         const double* parameters,
         const word objFuncName,
         const word designVarName,
-        const word modelName,
         double* dFdRegPar);
 
     /// compute dRdWOld^T*Psi
@@ -824,6 +765,10 @@ public:
     {
         return meshPtr_->nCells();
     }
+
+    // Martina 13102025
+    /// return the number of local cells
+    label getNLocalFaces(const word& patchName) const;
 
     /// return the number of local points
     label getNLocalPoints() const
@@ -1192,30 +1137,30 @@ public:
     }
 
     /// get the number of regression model parameters
-    label getNRegressionParameters(word modelName)
+    label getNRegressionParameters()
     {
 #ifdef SolidDASolver
         return 0;
 #else
-        return daRegressionPtr_->nParameters(modelName);
+        return daRegressionPtr_->nParameters();
 #endif
     }
 
     /// get the regression parameter
-    scalar getRegressionParameter(word modelName, const label idxI)
+    scalar getRegressionParameter(const label idxI)
     {
 #ifdef SolidDASolver
         return 0.0;
 #else
-        return daRegressionPtr_->getParameter(modelName, idxI);
+        return daRegressionPtr_->getParameter(idxI);
 #endif
     }
 
     /// set the regression parameter
-    void setRegressionParameter(word modelName, const label idxI, scalar val)
+    void setRegressionParameter(const label idxI, scalar val)
     {
 #ifndef SolidDASolver
-        daRegressionPtr_->setParameter(modelName, idxI, val);
+        daRegressionPtr_->setParameter(idxI, val);
 #endif
     }
 
@@ -1233,7 +1178,6 @@ public:
         const double* states,
         const double* parameters,
         const double* seeds,
-        const word modelName,
         double* product);
 
     /// update the primal state boundary condition based on the primalBC dict
@@ -1258,24 +1202,20 @@ public:
         pyComputeInterface computeInterface,
         void* compute,
         pyJacVecProdInterface jacVecProdInterface,
-        void* jacVecProd,
-        pySetCharInterface setModelNameInterface,
-        void* setModelName)
+        void* jacVecProd)
     {
         DAUtility::pyCalcBetaInterface = computeInterface;
         DAUtility::pyCalcBeta = compute;
 
         DAUtility::pyCalcBetaJacVecProdInterface = jacVecProdInterface;
         DAUtility::pyCalcBetaJacVecProd = jacVecProd;
-
-        DAUtility::pySetModelNameInterface = setModelNameInterface;
-        DAUtility::pySetModelName = setModelName;
     }
 
+    /// set state variables to NO_WRITE
+    void disableStateAutoWrite();
+
     /// write state variables that are NO_WRITE to disk
-    void writeAdjStates(
-        const label writeMesh,
-        const wordList& additionalOutput);
+    void writeAdjStates(const label writeMesh);
 
     /// return the elapsed clock time for testing speed
     scalar getElapsedClockTime()
@@ -1328,25 +1268,13 @@ public:
         const word fieldType,
         const double timeName);
 
-    /// get the latest time solution from the case folder.
     scalar getLatestTime()
     {
+        // get the latest time solution from the case folder.
         instantList timeDirs = runTimePtr_->findTimes(runTimePtr_->path(), runTimePtr_->constant());
         scalar latestTime = timeDirs.last().value();
         return latestTime;
     }
-
-    /// initialize the objStd vars
-    void initObjStd();
-
-    /// calculate the objective function's std
-    void calcObjStd(Time& runTime);
-
-    /// write the adjoint variables for all states
-    void writeAdjointFields(
-        const word objFunc,
-        const double writeTime,
-        const double* psi);
 };
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

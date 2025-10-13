@@ -11,7 +11,7 @@
 
 """
 
-__version__ = "3.1.3"
+__version__ = "3.1.1"
 
 import subprocess
 import os
@@ -73,10 +73,6 @@ class DAOPTION(object):
         ## The convergence tolerance for the primal solver. If the primal can not converge to 2 orders
         ## of magnitude (default) higher than this tolerance, the primal solution will return fail=True
         self.primalMinResTol = 1.0e-8
-
-        ## The convergence tolerance based on the selected objective function's standard deviation
-        ## The standard deviation is calculated based on the last N (default 200) steps of the objective function series
-        self.primalObjStdTol = {"active": False, "objFuncName": "None", "steps": 200, "tol": 1e-5, "tolDiff": 1e2}
 
         ## The boundary condition for primal solution. The keys should include "variable", "patch",
         ## and "value". For turbulence variable, one can also set "useWallFunction" [bool].
@@ -473,8 +469,6 @@ class DAOPTION(object):
             "PCMatPrecomputeInterval": 100,
             "PCMatUpdateInterval": 1,
             "reduceIO": True,
-            "additionalOutput": ["None"],
-            "readZeroFields": True,
         }
 
         ## At which iteration should we start the averaging of objective functions.
@@ -515,54 +509,22 @@ class DAOPTION(object):
         self.useConstrainHbyA = False
 
         ## parameters for regression models
-        ## we support defining multiple regression models. Each regression model can have only one output
-        ## but it can have multiple input features. Refer to src/adjoint/DARegression/DARegression.C for
-        ## a full list of supported input features. There are two supported regression model types:
-        ## neural network and radial basis function. We can shift and scale the inputs and outputs
-        ## we can also prescribe a default output value. The default output will be used in resetting
-        ## when they are nan, inf, or out of the prescribe upper and lower bounds
         self.regressionModel = {
             "active": False,
-            # "model1": {
-            #    "modelType": "neuralNetwork",
-            #    "inputNames": ["PoD", "VoS", "PSoSS", "chiSA"],
-            #    "outputName": "betaFINuTilda",
-            #    "hiddenLayerNeurons": [20, 20],
-            #    "inputShift": [0.0],
-            #    "inputScale": [1.0],
-            #    "outputShift": 1.0,
-            #    "outputScale": 1.0,
-            #    "outputUpperBound": 1e1,
-            #    "outputLowerBound": -1e1,
-            #    "activationFunction": "sigmoid",  # other options are relu and tanh
-            #    "printInputInfo": True,
-            #    "defaultOutputValue": 1.0,
-            # },
-            # "model2": {
-            #    "modelType": "radialBasisFunction",
-            #    "inputNames": ["KoU2", "ReWall", "CoP", "TauoK"],
-            #    "outputName": "betaFIOmega",
-            #    "nRBFs": 50,
-            #    "inputShift": [0.0],
-            #    "inputScale": [1.0],
-            #    "outputShift": 1.0,
-            #    "outputScale": 1.0,
-            #    "outputUpperBound": 1e1,
-            #    "outputLowerBound": -1e1,
-            #    "printInputInfo": True,
-            #    "defaultOutputValue": 1.0,
-            # },
+            "modelType": "neuralNetwork",
+            "inputNames": ["None"],
+            "outputName": "None",
+            "hiddenLayerNeurons": [0],
+            "inputShift": [0.0],
+            "inputScale": [1.0],
+            "outputShift": 0.0,
+            "outputScale": 1.0,
+            "outputUpperBound": 1e8,
+            "outputLowerBound": -1e8,
+            "activationFunction": "sigmoid",
+            "printInputInfo": True,
+            "defaultOutputValue": 0.0,
         }
-
-        ## whether to use averaged states
-        ## This is useful for cases when steady-state solvers do not converge very well, e.g., flow
-        ## separation. In these cases, the flow field and the objective function will oscillate and
-        ## to get a better flow field and obj func value, we can use step-averaged (mean) states
-        ## the start can be from 0 to 1. 0 means we use all time steps for averaging, while 1 means
-        ## we use no time steps for averaging. 0.8 means we use the last 20% of the time step for averaging.
-        ## We usually don't use 0 because the flow will need some spin up time, so using the spin-up
-        ## flow field for meanStates will be slightly inaccurate.
-        self.useMeanStates = {"active": False, "start": 0.5}
 
         # *********************************************************************************************
         # ************************************ Advance Options ****************************************
@@ -571,10 +533,6 @@ class DAOPTION(object):
         ## The run status which can be solvePrimal, solveAdjoint, or calcTotalDeriv. This parameter is
         ## used internally, so users should never change this option in the Python layer.
         self.runStatus = "None"
-
-        ## The current objective function name. This variable will be reset in DAFoamFunctions
-        ## Then, we know which objective function is used in solve_linear in DAFoamSolver
-        self.solveLinearObjFuncName = "None"
 
         ## Whether to print all options defined in pyDAFoam to screen before optimization.
         self.printPYDAFOAMOptions = False
@@ -699,6 +657,11 @@ class DAOPTION(object):
 
         ## The sensitivity map will be saved to disk during optimization for the given design variable
         ## names in the list. Currently only support design variable type FFD and Field
+        ## The surface sensitivity map is separated from the primal solution because they only have surface mesh.
+        ## They will be saved to folders such as 1e-11, 2e-11, 3e-11, etc,
+        ## When loading in paraview, you need to uncheck the "internalMesh", and check "allWalls" on the left panel
+        ## If your design variable is of field type, the sensitivity map will be saved along with the primal
+        ## solution because they share the same mesh. The sensitivity files read sens_objFuncName_designVarName
         ## NOTE: this function only supports useAD->mode:reverse
         ## Example:
         ##     "writeSensMap" : ["shapex", "shapey"]
@@ -709,9 +672,6 @@ class DAOPTION(object):
 
         ## Whether to write deformed constraints to disk during optimization, i.e., DVCon.writeTecplot
         self.writeDeformedConstraints = False
-
-        ## Whether to write adjoint variables in OpenFOAM field format for post-processing
-        self.writeAdjointFields = False
 
         ## The max number of correctBoundaryConditions calls in the updateOFField function.
         self.maxCorrectBCCalls = 10
@@ -750,9 +710,10 @@ class DAOPTION(object):
         ## tensorflow related functions
         self.tensorflow = {
             "active": False,
-            # "model1": {
-            #    "predictBatchSize": 1000
-            # }
+            "modelName": "model",
+            "nInputs": 1,
+            "nOutputs": 1,
+            "batchSize": 1000,
         }
 
 
@@ -934,13 +895,9 @@ class PYDAFOAM(object):
             TensorFlowHelper.options = self.getOption("tensorflow")
             TensorFlowHelper.initialize()
             # pass this helper function to the C++ layer
-            self.solver.initTensorFlowFuncs(
-                TensorFlowHelper.predict, TensorFlowHelper.calcJacVecProd, TensorFlowHelper.setModelName
-            )
+            self.solver.initTensorFlowFuncs(TensorFlowHelper.predict, TensorFlowHelper.calcJacVecProd)
             if self.getOption("useAD")["mode"] in ["forward", "reverse"]:
-                self.solverAD.initTensorFlowFuncs(
-                    TensorFlowHelper.predict, TensorFlowHelper.calcJacVecProd, TensorFlowHelper.setModelName
-                )
+                self.solverAD.initTensorFlowFuncs(TensorFlowHelper.predict, TensorFlowHelper.calcJacVecProd)
 
         Info("pyDAFoam initialization done!")
 
@@ -953,8 +910,8 @@ class PYDAFOAM(object):
         """
 
         self.solverRegistry = {
-            "Incompressible": ["DASimpleFoam", "DASimpleTFoam", "DAPisoFoam", "DAPimpleFoam", "DAPimpleDyMFoam", "DAMySimpleTFoam"],
-            "Compressible": ["DARhoSimpleFoam", "DARhoSimpleCFoam", "DATurboFoam", "DARhoPimpleFoam"],
+            "Incompressible": ["DASimpleFoam", "DASimpleTFoam", "DAPisoFoam", "DAPimpleFoam", "DAPimpleDyMFoam"],
+            "Compressible": ["DARhoSimpleFoam", "DARhoSimpleCFoam", "DATurboFoam"],
             "Solid": ["DASolidDisplacementFoam", "DALaplacianFoam", "DAHeatTransferFoam", "DAScalarTransportFoam"],
         }
 
@@ -1339,14 +1296,6 @@ class PYDAFOAM(object):
                 self.DVGeo.writeTecplot("deformedFFD_%d.dat" % self.nSolveAdjoints)
             else:
                 self.DVGeo.writeTecplot("deformedFFD_%d.dat" % counter)
-
-    def writeAdjointFields(self, objFunc, writeTime, psi):
-        """
-        Write the adjoint variables in OpenFOAM field format for post-processing
-        """
-
-        if self.getOption("writeAdjointFields"):
-            self.solver.writeAdjointFields(objFunc, writeTime, psi)
 
     def writeTotalDeriv(self, fileName, sens, evalFuncs):
         """
@@ -2006,7 +1955,17 @@ class PYDAFOAM(object):
 
     def calcTotalDerivsBC(self, objFuncName, designVarName, dFScaling=1.0, accumulateTotal=False):
 
-        nDVs = 1
+#        nDVs = 1
+        nDVs = 0
+        if self.DVGeo is not None:
+            xDV = self.DVGeo.getValues()
+            if designVarName in xDV:
+                nDVs = len(xDV[designVarName])
+        elif designVarName in self.internalDV:
+            nDVs = len(self.internalDV[designVarName]["init"])
+        else:
+            raise Error("design variable %s not found..." % designVarName)
+
         # calculate dFdBC
         dFdBC = PETSc.Vec().create(PETSc.COMM_WORLD)
         dFdBC.setSizes((PETSc.DECIDE, nDVs), bsize=1)
@@ -2075,7 +2034,7 @@ class PYDAFOAM(object):
                 dFdXsFlatten = dFdXs.flatten()
                 XsFlatten = Xs.flatten()
                 size = len(dFdXsFlatten)
-                timeName = float(self.nSolveAdjoints) / 1e4
+                timeName = float(self.nSolveAdjoints) / 1e8
                 name = "sens_" + objFuncName + "_" + designVarName
                 self.solver.writeSensMapSurface(name, dFdXsFlatten, XsFlatten, size, timeName)
             # assign the total derivative to self.adjTotalDeriv
@@ -2102,7 +2061,8 @@ class PYDAFOAM(object):
 
         if fieldType == "scalar":
             fieldComp = 1
-        elif fieldType == "scalarPatch":
+	# martina 08092025
+        if fieldType == "scalarPatch":
             fieldComp = 1
         elif fieldType == "vector":
             fieldComp = 3
@@ -2133,7 +2093,7 @@ class PYDAFOAM(object):
 
         # check if we need to save the sensitivity maps
         if designVarName in self.getOption("writeSensMap"):
-            timeName = float(self.nSolveAdjoints) / 1e4
+            timeName = float(self.nSolveAdjoints) / 1e8
             dFdFieldArray = self.vec2Array(totalDeriv)
             name = "sens_" + objFuncName + "_" + designVarName
             self.solver.writeSensMapField(name, dFdFieldArray, fieldType, timeName)
@@ -2221,7 +2181,7 @@ class PYDAFOAM(object):
             else:
                 self.adjTotalDeriv[objFuncName][designVarName][i] = totalDerivSeq[i]
 
-    def calcTotalDerivsRegPar(self, objFuncName, designVarName, modelName, dFScaling=1.0, accumulateTotal=False):
+    def calcTotalDerivsRegPar(self, objFuncName, designVarName, dFScaling=1.0, accumulateTotal=False):
 
         nDVs = 0
         parameters = None
@@ -2235,7 +2195,7 @@ class PYDAFOAM(object):
             nDVs = len(self.internalDV[designVarName]["init"])
             parameters = self.internalDV[designVarName]["value"]
 
-        nParameters = self.getNRegressionParameters(modelName)
+        nParameters = self.solver.getNRegressionParameters()
         if nDVs != nParameters:
             raise Error("number of parameters not valid!")
 
@@ -2247,12 +2207,12 @@ class PYDAFOAM(object):
 
         # calc dFdRegPar
         self.solverAD.calcdFdRegParAD(
-            xvArray, wArray, parameters, objFuncName.encode(), designVarName.encode(), modelName.encode(), dFdRegPar
+            xvArray, wArray, parameters, objFuncName.encode(), designVarName.encode(), dFdRegPar
         )
         dFdRegPar *= dFScaling
 
         # calculate dRdFieldT*Psi and save it to totalDeriv
-        self.solverAD.calcdRdRegParTPsiAD(xvArray, wArray, parameters, seedArray, modelName.encode(), totalDerivArray)
+        self.solverAD.calcdRdRegParTPsiAD(xvArray, wArray, parameters, seedArray, totalDerivArray)
         # all reduce because parameters is a global DV
         totalDerivArray = self.comm.allreduce(totalDerivArray, op=MPI.SUM)
 
@@ -2310,7 +2270,6 @@ class PYDAFOAM(object):
 
         # NOTE: this step is critical because we need to compute the residual for
         # self.solverAD once to get the proper oldTime level for unsteady adjoint
-        self.solverAD.updateStateBoundaryConditions()
         self.solverAD.calcPrimalResidualStatistics("calc".encode())
 
         # call the internal design var function to update DASolver parameters
@@ -2400,7 +2359,6 @@ class PYDAFOAM(object):
         self.adjTotalDeriv = self._initializeAdjTotalDeriv()
 
         # loop over all objFunc, calculate dFdW, and solve the adjoint
-        self.adjointFail = 0
         for objFuncName in objFuncDict:
             if objFuncName in self.objFuncNames4Adj:
                 # zero the vecs
@@ -2460,7 +2418,7 @@ class PYDAFOAM(object):
                         self.solver.calcPCMatWithFvMatrix(PCMat)
 
                     # now solve the adjoint eqn
-                    self.adjointFail += self.solverAD.solveLinearEqn(ksp, dFdW, self.adjVectors[objFuncName])
+                    self.adjointFail = self.solverAD.solveLinearEqn(ksp, dFdW, self.adjVectors[objFuncName])
 
                     # loop over all the design vars and accumulate totals
                     for designVarName in designVarDict:
@@ -2478,8 +2436,7 @@ class PYDAFOAM(object):
                             fieldType = designVarDict[designVarName]["fieldType"]
                             self.calcTotalDerivsField(objFuncName, designVarName, fieldType, dFScaling, True)
                         elif designVarDict[designVarName]["designVarType"] == "RegPar":
-                            modelName = designVarDict[designVarName]["modelName"]
-                            self.calcTotalDerivsRegPar(objFuncName, designVarName, modelName, dFScaling, True)
+                            self.calcTotalDerivsRegPar(objFuncName, designVarName, dFScaling, True)
                         else:
                             raise Error("designVarType not valid!")
 
@@ -2491,10 +2448,6 @@ class PYDAFOAM(object):
                         # because dRdW00TPsi will be used 2 steps before
                         self.solverAD.calcdRdWOldTPsiAD(1, self.adjVectors[objFuncName], dRdW0TPsi)
                         self.solverAD.calcdRdWOldTPsiAD(2, self.adjVectors[objFuncName], dRdW00TPsiBuffer)
-
-                    # if one adjoint solution fails, return immediate without solving for the rest of steps.
-                    if self.adjointFail > 0:
-                        break
 
         self.nSolveAdjoints += 1
 
@@ -2782,8 +2735,7 @@ class PYDAFOAM(object):
                     # loop over all objectives
                     for objFuncName in objFuncDict:
                         if objFuncName in self.objFuncNames4Adj:
-                            modelName = designVarDict[designVarName]["modelName"]
-                            self.calcTotalDerivsRegPar(objFuncName, designVarName, modelName)
+                            self.calcTotalDerivsRegPar(objFuncName, designVarName)
                 else:
                     raise Error("For Field design variable type, we only support useAD->mode=reverse")
             else:
@@ -3021,13 +2973,33 @@ class PYDAFOAM(object):
 
         if fieldType == "scalar":
             fieldComp = 1
+	# martina 08092025
+        elif fieldType == "scalarPatch":
+            fieldComp = 1
         elif fieldType == "vector":
             fieldComp = 3
         else:
             raise Error("fieldType not valid!")
-        nLocalCells = self.solver.getNLocalCells()
 
-        vecSize = fieldComp * nLocalCells
+        designVarDict = self.getOption("designVar")
+        nLocalEntities = 0
+        isPatchField = False
+
+        if fieldName in designVarDict:
+            dvSubDict = designVarDict[fieldName]
+            if "patches" in dvSubDict:
+                isPatchField = True
+                # Get the first patch name from the list
+                patchName = dvSubDict["patches"][0]
+                # Call your C++ function to get the number of faces for that patch
+                nLocalEntities = self.solver.getNLocalFaces(patchName.encode())
+                print(f"Detected patch field '{fieldName}' on patch '{patchName}' with {nLocalEntities} faces.")
+        if not isPatchField:
+            # If it's not a patch field, assume it's a volumetric field
+            nLocalEntities = self.solver.getNLocalCells()
+            print(f"Detected volumetric field '{fieldName}' with {nLocalEntities} cells.")
+
+        vecSize = fieldComp * nLocalEntities
         fieldVec = PETSc.Vec().create(comm=PETSc.COMM_WORLD)
         fieldVec.setSizes((vecSize, PETSc.DECIDE), bsize=1)
         fieldVec.setFromOptions()
@@ -3300,7 +3272,7 @@ class PYDAFOAM(object):
     def renameSolution(self, solIndex):
         """
         Rename the primal solution folder to specific format for post-processing. The renamed time has the
-        format like 0.0001, 0.0002, etc. One can load these intermediate shapes and fields and
+        format like 1e-8, 2e-8, etc. One can load these intermediate shapes and fields and
         plot them in paraview.
         The way it is implemented is that we sort the solution folder and consider the largest time folder
         as the solution folder and rename it
@@ -3319,12 +3291,12 @@ class PYDAFOAM(object):
 
         latestTime = self.solver.getLatestTime()
 
-        if latestTime < 1.0:
-            Info("Latest solution time %g less than 1, not renamed." % latestTime)
+        if latestTime < 1e-4:
+            Info("Latest solution time %g less than 1e-4, not renamed." % latestTime)
             renamed = False
             return latestTime, renamed
 
-        distTime = "%g" % (solIndex / 1e4)
+        distTime = "%g" % (solIndex / 1e8)
         targetTime = "%g" % latestTime
 
         src = os.path.join(checkPath, targetTime)
@@ -4060,7 +4032,7 @@ class PYDAFOAM(object):
         if self.getOption("useAD")["mode"] in ["forward", "reverse"]:
             self.solverAD.setThermal(thermalArray)
 
-    def setRegressionParameter(self, modelName, idx, val):
+    def setRegressionParameter(self, idx, val):
         """
         Update the regression parameters
 
@@ -4073,16 +4045,9 @@ class PYDAFOAM(object):
             the parameter value to set
         """
 
-        self.solver.setRegressionParameter(modelName.encode(), idx, val)
+        self.solver.setRegressionParameter(idx, val)
         if self.getOption("useAD")["mode"] in ["forward", "reverse"]:
-            self.solverAD.setRegressionParameter(modelName.encode(), idx, val)
-
-    def getNRegressionParameters(self, modelName):
-        """
-        Get the number of regression model parameters
-        """
-        nParameters = self.solver.getNRegressionParameters(modelName.encode())
-        return nParameters
+            self.solverAD.setRegressionParameter(idx, val)
 
     def setFieldValue4GlobalCellI(self, fieldName, val, globalCellI, compI=0):
         """
@@ -4511,13 +4476,7 @@ class TensorFlowHelper:
 
     options = {}
 
-    model = {}
-
-    modelName = None
-
-    predictBatchSize = {}
-
-    nInputs = {}
+    model = None
 
     @staticmethod
     def initialize():
@@ -4525,19 +4484,14 @@ class TensorFlowHelper:
         Initialize parameters and load models
         """
         Info("Initializing the TensorFlowHelper")
-        for key in list(TensorFlowHelper.options.keys()):
-            if key != "active":
-                modelName = key
-                TensorFlowHelper.predictBatchSize[modelName] = TensorFlowHelper.options[modelName]["predictBatchSize"]
-                TensorFlowHelper.nInputs[modelName] = TensorFlowHelper.options[modelName]["nInputs"]
-                TensorFlowHelper.model[modelName] = tf.keras.models.load_model(modelName)
+        TensorFlowHelper.modelName = TensorFlowHelper.options["modelName"]
+        TensorFlowHelper.nInputs = TensorFlowHelper.options["nInputs"]
+        TensorFlowHelper.nOutputs = TensorFlowHelper.options["nOutputs"]
+        TensorFlowHelper.batchSize = TensorFlowHelper.options["batchSize"]
+        TensorFlowHelper.model = tf.keras.models.load_model(TensorFlowHelper.modelName)
 
-    @staticmethod
-    def setModelName(modelName):
-        """
-        Set the model name from the C++ to Python layer
-        """
-        TensorFlowHelper.modelName = modelName.decode()
+        if TensorFlowHelper.nOutputs != 1:
+            raise Error("current version supports nOutputs=1 only!")
 
     @staticmethod
     def predict(inputs, n, outputs, m):
@@ -4545,12 +4499,8 @@ class TensorFlowHelper:
         Calculate the outputs based on the inputs using the saved model
         """
 
-        modelName = TensorFlowHelper.modelName
-        nInputs = TensorFlowHelper.nInputs[modelName]
-
-        inputs_tf = np.reshape(inputs, (-1, nInputs))
-        batchSize = TensorFlowHelper.predictBatchSize[modelName]
-        outputs_tf = TensorFlowHelper.model[modelName].predict(inputs_tf, verbose=False, batch_size=batchSize)
+        inputs_tf = np.reshape(inputs, (-1, TensorFlowHelper.nInputs))
+        outputs_tf = TensorFlowHelper.model.predict(inputs_tf, verbose=False, batch_size=TensorFlowHelper.batchSize)
 
         for i in range(m):
             outputs[i] = outputs_tf[i, 0]
@@ -4561,14 +4511,11 @@ class TensorFlowHelper:
         Calculate the gradients of the outputs wrt the inputs
         """
 
-        modelName = TensorFlowHelper.modelName
-        nInputs = TensorFlowHelper.nInputs[modelName]
-
-        inputs_tf = np.reshape(inputs, (-1, nInputs))
+        inputs_tf = np.reshape(inputs, (-1, TensorFlowHelper.nInputs))
         inputs_tf_var = tf.Variable(inputs_tf, dtype=tf.float32)
 
         with tf.GradientTape() as tape:
-            outputs_tf = TensorFlowHelper.model[modelName](inputs_tf_var)
+            outputs_tf = TensorFlowHelper.model(inputs_tf_var)
 
         gradients_tf = tape.gradient(outputs_tf, inputs_tf_var)
 
