@@ -2048,69 +2048,108 @@ class PYDAFOAM(object):
                     self.adjTotalDeriv[objFuncName][designVarName][i] = dFdFFD[designVarName][0][i]
 
     def calcTotalDerivsField(self, objFuncName, designVarName, fieldType, dFScaling=1.0, accumulateTotal=False):
+        """
+        Calculate total derivatives for field design variables (volumetric or patch-based).
+        """
+	# uttam-martina 20251010
+        # --- NEW: Logic to determine if it's a patch field and get the correct entity count ---
+        designVarDict = self.getOption("designVar")
+        nLocalEntities = 0
+        patchName = None
+        isPatchField = False
 
+        if designVarName in designVarDict:
+            dvSubDict = designVarDict[designVarName]
+            if "patches" in dvSubDict:
+                isPatchField = True
+                patchName = dvSubDict["patches"][0]
+                nLocalEntities = self.solver.getNLocalFaces(patchName.encode())
+                print(f"Calculating total derivatives for patch field '{designVarName}' on patch '{patchName}' ({nLocalEntities} faces).")
+
+        if not isPatchField:
+            nLocalEntities = self.solver.getNLocalCells()
+            print(f"Calculating total derivatives for volumetric field '{designVarName}' ({nLocalEntities} cells).")
+
+        # --- Determine fieldComp based on the potentially modified fieldType ---
+        if "scalar" in fieldType: # Handles scalar and scalarPatch
+            fieldComp = 1
+        elif "vector" in fieldType: # Handles "vector" and "vectorPatch"
+            fieldComp = 3
+        else:
+            # Raise error using the *original* fieldType for clarity
+            raise ValueError(f"fieldType '{fieldType}' provided for {designVarName} is not valid!")
+
+        # --- Determine nDVs (total number of design variables for this group) ---
+        # This part remains the same, assuming DVGeo handles the global count correctly
         nDVs = 0
         if self.DVGeo is not None:
             xDV = self.DVGeo.getValues()
-            if designVarName in xDV:
-                nDVs = len(xDV[designVarName])
+        if designVarName in xDV:
+            nDVs = len(xDV[designVarName])
         elif designVarName in self.internalDV:
             nDVs = len(self.internalDV[designVarName]["init"])
         else:
-            raise Error("design variable %s not found..." % designVarName)
+            raise ValueError("design variable %s not found..." % designVarName)
 
-        if fieldType == "scalar":
-            fieldComp = 1
-	# martina 08092025
-        if fieldType == "scalarPatch":
-            fieldComp = 1
-        elif fieldType == "vector":
-            fieldComp = 3
-        else:
-            raise Error("fieldType not valid!")
-        nLocalCells = self.solver.getNLocalCells()
+        # Check if the number of DVs matches the expected size (important sanity check)
+        if nDVs != fieldComp * nLocalEntities:
+            print(f"Warning: Mismatch between expected DVs ({fieldComp * nLocalEntities}) "
+              f"and registered DVs ({nDVs}) for {designVarName}.")
+        # Depending on how pyOptSparse/DVGeo handles indexing, this might still work,
+        # but it's worth investigating if you encounter further issues.
 
-        # calculate dFdField
+        # --- Size PETSc vectors using the correct nLocalEntities ---
+        vecSize = fieldComp * nLocalEntities
+
+        # Calculate dFdField
         dFdField = PETSc.Vec().create(PETSc.COMM_WORLD)
-        dFdField.setSizes((fieldComp * nLocalCells, PETSc.DECIDE), bsize=1)
+        dFdField.setSizes((vecSize, PETSc.DECIDE), bsize=1)
         dFdField.setFromOptions()
+        # NOTE: Ensure self.solverAD.calcdFdFieldAD is correctly implemented for patch fields in C++
         self.solverAD.calcdFdFieldAD(self.xvVec, self.wVec, objFuncName.encode(), designVarName.encode(), dFdField)
-
         dFdField.scale(dFScaling)
 
-        # call the total deriv
+        # Calculate dRdFieldT*Psi
         totalDeriv = PETSc.Vec().create(PETSc.COMM_WORLD)
-        totalDeriv.setSizes((fieldComp * nLocalCells, PETSc.DECIDE), bsize=1)
+        totalDeriv.setSizes((vecSize, PETSc.DECIDE), bsize=1)
         totalDeriv.setFromOptions()
-        # calculate dRdFieldT*Psi and save it to totalDeriv
+        # NOTE: Ensure self.solverAD.calcdRdFieldTPsiAD is correctly implemented for patch fields in C++
         self.solverAD.calcdRdFieldTPsiAD(
-            self.xvVec, self.wVec, self.adjVectors[objFuncName], designVarName.encode(), totalDeriv
+        self.xvVec, self.wVec, self.adjVectors[objFuncName], designVarName.encode(), totalDeriv
         )
 
         # totalDeriv = dFdField - dRdFieldT*psi
         totalDeriv.scale(-1.0)
         totalDeriv.axpy(1.0, dFdField)
 
-        # check if we need to save the sensitivity maps
+        # --- Write sensitivity map if requested ---
         if designVarName in self.getOption("writeSensMap"):
             timeName = float(self.nSolveAdjoints) / 1e8
-            dFdFieldArray = self.vec2Array(totalDeriv)
+            dFdFieldArray = self.vec2Array(totalDeriv) # Gather parallel data
             name = "sens_" + objFuncName + "_" + designVarName
-            self.solver.writeSensMapField(name, dFdFieldArray, fieldType, timeName)
+            # NOTE: Ensure self.solver.writeSensMapField can handle patch fields in C++
+            self.solver.writeSensMapField(name, dFdFieldArray, fieldType, timeName) # Pass potentially modified fieldType
 
-        # assign the total derivative to self.adjTotalDeriv
+        # --- Assign total derivatives ---
         if self.adjTotalDeriv[objFuncName][designVarName] is None:
+            # Use nDVs (total number of DVs) for the final numpy array size
             self.adjTotalDeriv[objFuncName][designVarName] = np.zeros(nDVs, self.dtype)
 
-        # we need to convert the parallel vec to seq vec
+        # Convert the parallel PETSc vector to a sequential one for pyOptSparse
         totalDerivSeq = PETSc.Vec().createSeq(nDVs, bsize=1, comm=PETSc.COMM_SELF)
         self.solver.convertMPIVec2SeqVec(totalDeriv, totalDerivSeq)
 
+        # Assign values to the final numpy array
         for i in range(nDVs):
             if accumulateTotal is True:
                 self.adjTotalDeriv[objFuncName][designVarName][i] += totalDerivSeq[i]
             else:
                 self.adjTotalDeriv[objFuncName][designVarName][i] = totalDerivSeq[i]
+
+#        # Clean up PETSc objects
+#        dFdField.destroy()
+#        totalDeriv.destroy()
+#        totalDerivSeq.destroy()
 
     def calcTotalDerivsAOA(self, objFuncName, designVarName, dFScaling=1.0, accumulateTotal=False):
 
@@ -2977,6 +3016,9 @@ class PYDAFOAM(object):
         elif fieldType == "scalarPatch":
             fieldComp = 1
         elif fieldType == "vector":
+            fieldComp = 3
+	# uttam 20250919
+        elif fieldType == "vectorPatch":
             fieldComp = 3
         else:
             raise Error("fieldType not valid!")
