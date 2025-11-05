@@ -100,6 +100,9 @@ public:
     /// local boundary patch size
     label nLocalBoundaryPatches;
 
+//Martina05112025
+    label nLocalBoundaryPatchFaces;
+
     /// local coupled boundary patch size
     label nLocalCoupledBFaces;
 
@@ -174,6 +177,8 @@ public:
     globalIndex globalVolScalarFieldNumbering;
     globalIndex globalVolVectorFieldNumbering;
     globalIndex globalSurfaceScalarFieldNumbering;
+// Martina 05112025
+    globalIndex globalBoundaryPatchNumbering;
     //@}
 
     /// a list to map the point index from decomposed domains to the original un-decomposed domain

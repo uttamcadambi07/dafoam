@@ -5215,27 +5215,6 @@ void DASolver::calcdFdFieldAD(
     daOptionPtr_->getAllOptions().readEntry<wordList>("writeJacobians", writeJacobians);
     if (writeJacobians.found("dFdField") || writeJacobians.found("all"))
     {
-//martina16092025
-/*
-	if (designVarName == "etaWallDV")
-	{
-   	    wordList patches;
-    	    dvSubDict.readEntry("patches", patches);
-
-            const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
-// this doesn't work because dFdField is a PETSc vector with no boundary field
-// this could be what's wrong and why dFdField has the size of the internal field and is 0 everywhere
-            const fvPatchScalarField& pSens = dFdField.boundaryField()[patchID];
-	    scalarField dFdFieldp(pSens.size());
-	    forAll(pSens, faceI)
-	    {
-		dFdFieldp[faceI] = pSens[faceI];
-	    }
-            word outputName2 = "dFdField_patch_"+designVarName;
-	    DAUtility::writeVectorBinary(dFdFieldp, outputName2);
-            DAUtility::writeVectorASCII(dFdFieldp, outputName2);
-	}
-*/
         word outputName = "dFdField_" + designVarName;
         DAUtility::writeVectorBinary(dFdField, outputName);
         DAUtility::writeVectorASCII(dFdField, outputName);
@@ -8885,12 +8864,9 @@ void DASolver::setFieldValue4LocalCellI(
 
     	    const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
             if (patchID < 0) FatalErrorInFunction << "Patch not found: " << patches[0] << abort(FatalError);
-            fvPatchScalarField& pF = fld.boundaryFieldRef()[patchID];
 
-	    forAll(pF, faceI)
-	    {
-		 pF[faceI] = val;
-	    }
+            fvPatchScalarField& pF = fld.boundaryFieldRef()[patchID];
+            pF[localCellI] = val;
 	}
 	else
 	{
@@ -8953,14 +8929,15 @@ void DASolver::setFieldValue4GlobalCellI(
                     FatalErrorInFunction << "Patch not found: " << patches[0] << abort(FatalError);
 
                 fvPatchVectorField& pF = state.boundaryFieldRef()[patchID];
+		label localCellI = daIndexPtr_->globalCellNumbering.toLocal(globalCellI);
 
-                forAll(pF, faceI)
-                {
+//                forAll(pF, faceI)
+//                {
                     for (label comp = 0; comp < 3; comp++)
                     {
-                        pF[faceI][compI] = val;
+                        pF[localCellI][compI] = val;
                     }
-                }
+//                }
             }
             else
             {
@@ -8973,9 +8950,11 @@ void DASolver::setFieldValue4GlobalCellI(
     }
     else if (meshPtr_->thisDb().foundObject<volScalarField>(fieldName))
     {
-        if (daIndexPtr_->globalCellNumbering.isLocal(globalCellI))
-        {
-            if (fieldName == "etaWallDV")
+//        if (daIndexPtr_->globalCellNumbering.isLocal(globalCellI))
+//        {
+	if (fieldName == "etaWallDV")
+	{
+	    if (daIndexPtr_->globalBoundaryPatchNumbering.isLocal(globalCellI))
             {
                 volScalarField& fld =
                 const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
@@ -8986,21 +8965,26 @@ void DASolver::setFieldValue4GlobalCellI(
 
             	const label patchID = meshPtr_->boundaryMesh().findPatchID(patches[0]);
             	if (patchID < 0) FatalErrorInFunction << "Patch not found: " << patches[0] << abort(FatalError);
-            	fvPatchScalarField& pF = fld.boundaryFieldRef()[patchID];
 
-            	forAll(pF, faceI)
-            	{
-                    pF[faceI] = val;
-            	}
+            	fvPatchScalarField& pF = fld.boundaryFieldRef()[patchID];
+                label localCellI = daIndexPtr_->globalBoundaryPatchNumbering.toLocal(globalCellI);
+
+		if (localCellI >= 0 && localCellI < pF.size())
+		{
+		    pF[localCellI] = val;
+		}
             }
-            else
+	}
+	else
+	{
+	    if (daIndexPtr_->globalCellNumbering.isLocal(globalCellI))
             {
                 volScalarField& field =
                     const_cast<volScalarField&>(meshPtr_->thisDb().lookupObject<volScalarField>(fieldName));
                 label localCellI = daIndexPtr_->globalCellNumbering.toLocal(globalCellI);
                 field[localCellI] = val;
             }
-	}
+ 	}
     }
     else
     {
@@ -9478,7 +9462,6 @@ void DASolver::disableStateAutoWrite()
             const_cast<volVectorField&>(meshPtr_->thisDb().lookupObject<volVectorField>("fvSource"));
         fvSource.writeOpt() = IOobject::NO_WRITE;
     }
-
 //Martina 18072025
     if (meshPtr_->thisDb().foundObject<volScalarField>("etaWallDV"))
     {
@@ -9564,7 +9547,6 @@ void DASolver::writeAdjStates(const label writeMesh)
             const volVectorField& fvSource = meshPtr_->thisDb().lookupObject<volVectorField>("fvSource");
             fvSource.write();
         }
-
 //Martina18072025
         if (meshPtr_->thisDb().foundObject<volScalarField>("etaWallDV"))
         {
@@ -10305,11 +10287,16 @@ void DASolver::writeSensMapField(
 //  Martina12092025
     else if (fieldType == "scalarPatch")
     {
-	volScalarField sens(
-    	    IOobject(name, meshPtr_->time().timeName(), meshPtr_(), IOobject::NO_READ, IOobject::NO_WRITE),
-    	    meshPtr_(),
-    	    dimensionedScalar(name, dimensionSet(0,0,0,0,0,0,0), 0.0),
-    	    "fixedValue");
+        volScalarField sens(
+            IOobject(
+                name,
+                meshPtr_->time().timeName(),
+                meshPtr_(),
+                IOobject::NO_READ,
+                IOobject::NO_WRITE),
+            meshPtr_(),
+            dimensionedScalar(name, dimensionSet(0, 0, 0, 0, 0, 0, 0), 0.0),
+            "fixedValue");
 
     	// zero internals (already 0), fill patch faces
     	dictionary designVarDict = daOptionPtr_->getAllOptions().subDict("designVar");

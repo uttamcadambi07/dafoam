@@ -70,6 +70,10 @@ DAIndex::DAIndex(
     nLocalInternalFaces = mesh.nInternalFaces();
     nLocalBoundaryFaces = nLocalFaces - nLocalInternalFaces;
     nLocalBoundaryPatches = mesh.boundaryMesh().size();
+// Martina05112025
+    word patchName = "bottom"; // read this from daOption if possible
+    label patchID = mesh.boundaryMesh().findPatchID(patchName);
+    nLocalBoundaryPatchFaces = mesh.boundaryMesh()[patchID].size();
 
     // get bFacePatchI and bFaceFaceI
     // these two lists store the patchI and faceI for a given boundary mesh face index
@@ -117,6 +121,8 @@ DAIndex::DAIndex(
     globalCellVectorNumbering = DAUtility::genGlobalIndex(nLocalCells * 3);
     globalFaceNumbering = DAUtility::genGlobalIndex(nLocalFaces);
     globalXvNumbering = DAUtility::genGlobalIndex(nLocalXv);
+// Martina 05112025
+    globalBoundaryPatchNumbering = DAUtility::genGlobalIndex(nLocalBoundaryPatchFaces);
 
     // global Adjoint state sizes
     nGlobalAdjointStates = globalAdjointStateNumbering.size();
