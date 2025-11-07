@@ -71,10 +71,24 @@ DAIndex::DAIndex(
     nLocalBoundaryFaces = nLocalFaces - nLocalInternalFaces;
     nLocalBoundaryPatches = mesh.boundaryMesh().size();
 // Martina05112025
-    word patchName = "bottom"; // read this from daOption if possible
-    label patchID = mesh.boundaryMesh().findPatchID(patchName);
-    nLocalBoundaryPatchFaces = mesh.boundaryMesh()[patchID].size();
-
+    dictionary designVarDict = daOption.getAllOptions().subDict("designVar");
+    forAllConstIter(dictionary, designVarDict, iter)
+    {
+    	const word dvName = iter().keyword();
+    	dictionary dvSubDict = designVarDict.subDict(dvName);
+	if (dvSubDict.found("patches"))
+    	{
+            wordList patches;
+    	    dvSubDict.readEntry("patches", patches);
+	    const label patchID = mesh.boundaryMesh().findPatchID(patches[0]);
+    	    if (patchID < 0) FatalErrorInFunction << "Patch not found: " << patches[0] << abort(FatalError);
+    	    nLocalBoundaryPatchFaces = mesh.boundaryMesh()[patchID].size();
+	}
+	else
+	{
+	    Info << "No patch-type design variable found in daOptions::designVar." << nl;
+	}
+    }
     // get bFacePatchI and bFaceFaceI
     // these two lists store the patchI and faceI for a given boundary mesh face index
     // the index of these lists starts from the first boundary face of the first boundary patch.

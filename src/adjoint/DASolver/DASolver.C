@@ -8813,17 +8813,14 @@ void DASolver::setFieldValue4LocalCellI(
             // Get a modifiable reference to the patch field
             fvPatchVectorField& pF = state.boundaryFieldRef()[patchID];
 
-            // --- Treat localCellI as localFaceI ---
-            const label localFaceI = localCellI;
-
             // --- Perform the direct assignment (NO LOOPS) ---
             // Safety check: ensure the face index is valid for this patch
-            if (localFaceI >= 0 && localFaceI < pF.size())
+            if (localCellI >= 0 && localCellI < pF.size())
             {
                 // Safety check: ensure the component index is valid
                 if (compI >= 0 && compI < 3)
                 {
-                    pF[localFaceI][compI] = val;
+                    pF[localCellI][compI] = val;
                 }
                 else
                 {
@@ -8837,7 +8834,7 @@ void DASolver::setFieldValue4LocalCellI(
             {
                 // This might happen if the Python callback calculates an incorrect index
                 FatalErrorInFunction
-                    << "Invalid face index " << localFaceI
+                    << "Invalid face index " << localCellI
                     << " provided for patch " << patches[0]
                     << " which has size " << pF.size()
                     << abort(FatalError);
@@ -8909,9 +8906,9 @@ void DASolver::setFieldValue4GlobalCellI(
 
     if (meshPtr_->thisDb().foundObject<volVectorField>(fieldName))
     {
-        if (daIndexPtr_->globalCellNumbering.isLocal(globalCellI))
-        {
-            if (fieldName == "plateVelocityDV")
+	if (fieldName == "plateVelocityDV")
+	{
+	    if (daIndexPtr_->globalBoundaryPatchNumbering.isLocal(globalCellI))
             {
                 volVectorField& state = const_cast<volVectorField&>(
                     meshPtr_->thisDb().lookupObject<volVectorField>(fieldName));
@@ -8929,17 +8926,17 @@ void DASolver::setFieldValue4GlobalCellI(
                     FatalErrorInFunction << "Patch not found: " << patches[0] << abort(FatalError);
 
                 fvPatchVectorField& pF = state.boundaryFieldRef()[patchID];
-		label localCellI = daIndexPtr_->globalCellNumbering.toLocal(globalCellI);
+                label localCellI = daIndexPtr_->globalBoundaryPatchNumbering.toLocal(globalCellI);
 
-//                forAll(pF, faceI)
-//                {
-                    for (label comp = 0; comp < 3; comp++)
-                    {
-                        pF[localCellI][compI] = val;
-                    }
-//                }
+                if (localCellI >= 0 && localCellI < pF.size())
+                {
+                    pF[localCellI][compI] = val;
+                }
             }
-            else
+	}
+	else
+	{
+	    if (daIndexPtr_->globalCellNumbering.isLocal(globalCellI))
             {
                 volVectorField& field =
                     const_cast<volVectorField&>(meshPtr_->thisDb().lookupObject<volVectorField>(fieldName));
@@ -8950,8 +8947,6 @@ void DASolver::setFieldValue4GlobalCellI(
     }
     else if (meshPtr_->thisDb().foundObject<volScalarField>(fieldName))
     {
-//        if (daIndexPtr_->globalCellNumbering.isLocal(globalCellI))
-//        {
 	if (fieldName == "etaWallDV")
 	{
 	    if (daIndexPtr_->globalBoundaryPatchNumbering.isLocal(globalCellI))
